@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Secrets (never commit)
+ios/GlassCast/Config/Secrets.xcconfig
+android/local.properties
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+ios/build/
+.swiftpm/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/.kotlin/
+android/captures/
+*.iml
+
+
+# Python
+__pycache__/

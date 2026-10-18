@@ -1,0 +1,402 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		18CE063B8A8DC9CC5A23BC55 /* MJPEGServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866D4D1889C14D4AD38B583A /* MJPEGServer.swift */; };
+		4597C2130F9BAB16835A4DC4 /* viewer.html in Resources */ = {isa = PBXBuildFile; fileRef = 371774609D43F1958B355F48 /* viewer.html */; };
+		7AD5BD38CD3894D869181409 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 79E6BCDA26794383703E91E3 /* MWDATCamera */; };
+		7DD2FA44FC78AB45FFE5FF97 /* LiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2658E48CC52E1EB3AE1C1194 /* LiveView.swift */; };
+		96DA2D6A0B843A66104C0979 /* WearablesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */; };
+		C9D55693FB8B17A91A27EE8C /* NetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B220E5BE58233BBDE7E626FC /* NetworkInfo.swift */; };
+		CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB70259B8CB027AFE81EAB0 /* ContentView.swift */; };
+		F0DF341FC4F7290B5F3D24FD /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 70EC68423C7043B09C39EF0F /* MWDATCore */; };
+		F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		2658E48CC52E1EB3AE1C1194 /* LiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
+		371774609D43F1958B355F48 /* viewer.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = viewer.html; sourceTree = "<group>"; };
+		6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GlassCast.xcconfig; sourceTree = "<group>"; };
+		866D4D1889C14D4AD38B583A /* MJPEGServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MJPEGServer.swift; sourceTree = "<group>"; };
+		8BB70259B8CB027AFE81EAB0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AD521959CF1D0C053C768AF4 /* GlassCast.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GlassCast.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B220E5BE58233BBDE7E626FC /* NetworkInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInfo.swift; sourceTree = "<group>"; };
+		B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WearablesManager.swift; sourceTree = "<group>"; };
+		BA4CCCBA1D6920DABC6EE45C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCastApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D8339DB86CD2787C2FAB8B38 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F0DF341FC4F7290B5F3D24FD /* MWDATCore in Frameworks */,
+				7AD5BD38CD3894D869181409 /* MWDATCamera in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		226D0B70925BC96D5C1C45C6 /* glassescast */ = {
+			isa = PBXGroup;
+			children = (
+				3858378F57BBE222E48C2660 /* web */,
+			);
+			name = glassescast;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		3858378F57BBE222E48C2660 /* web */ = {
+			isa = PBXGroup;
+			children = (
+				371774609D43F1958B355F48 /* viewer.html */,
+			);
+			path = web;
+			sourceTree = "<group>";
+		};
+		397C297ED01E2881A4A80A14 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AD521959CF1D0C053C768AF4 /* GlassCast.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		70C86D745E10D22AD113731F /* GlassCast */ = {
+			isa = PBXGroup;
+			children = (
+				8BB70259B8CB027AFE81EAB0 /* ContentView.swift */,
+				BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */,
+				BA4CCCBA1D6920DABC6EE45C /* Info.plist */,
+				2658E48CC52E1EB3AE1C1194 /* LiveView.swift */,
+				866D4D1889C14D4AD38B583A /* MJPEGServer.swift */,
+				B220E5BE58233BBDE7E626FC /* NetworkInfo.swift */,
+				B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */,
+				C82EC8EA0C4E769F9A450481 /* Config */,
+			);
+			path = GlassCast;
+			sourceTree = "<group>";
+		};
+		C82EC8EA0C4E769F9A450481 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		D1BFE8B65FD082DAB3DEE06B = {
+			isa = PBXGroup;
+			children = (
+				70C86D745E10D22AD113731F /* GlassCast */,
+				226D0B70925BC96D5C1C45C6 /* glassescast */,
+				397C297ED01E2881A4A80A14 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		66E2E51F61A24E8F75EE7639 /* GlassCast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FE462C36AC5798CB4524D38C /* Build configuration list for PBXNativeTarget "GlassCast" */;
+			buildPhases = (
+				C7F891C9E4BD4D6E514F00E7 /* Sources */,
+				477C5E7B13B6B64544F28B52 /* Resources */,
+				D8339DB86CD2787C2FAB8B38 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GlassCast;
+			packageProductDependencies = (
+				70EC68423C7043B09C39EF0F /* MWDATCore */,
+				79E6BCDA26794383703E91E3 /* MWDATCamera */,
+			);
+			productName = GlassCast;
+			productReference = AD521959CF1D0C053C768AF4 /* GlassCast.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		841EE2FC7E336FAC36FBC610 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					66E2E51F61A24E8F75EE7639 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = ECF633A959FF37EB13F951B4 /* Build configuration list for PBXProject "GlassCast" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D1BFE8B65FD082DAB3DEE06B;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				ACA515F3482FCA0C75B3FF39 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 397C297ED01E2881A4A80A14 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				66E2E51F61A24E8F75EE7639 /* GlassCast */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		477C5E7B13B6B64544F28B52 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4597C2130F9BAB16835A4DC4 /* viewer.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C7F891C9E4BD4D6E514F00E7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */,
+				F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */,
+				7DD2FA44FC78AB45FFE5FF97 /* LiveView.swift in Sources */,
+				18CE063B8A8DC9CC5A23BC55 /* MJPEGServer.swift in Sources */,
+				C9D55693FB8B17A91A27EE8C /* NetworkInfo.swift in Sources */,
+				96DA2D6A0B843A66104C0979 /* WearablesManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		22A8395E4E7ABC7B9CF9323F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA337F601D15E0F025C5AC35 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GlassCast/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		AF36E0072E391774B2922F55 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GlassCast/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B8C47B14E0921FDAE3098D34 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		ECF633A959FF37EB13F951B4 /* Build configuration list for PBXProject "GlassCast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				22A8395E4E7ABC7B9CF9323F /* Debug */,
+				B8C47B14E0921FDAE3098D34 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FE462C36AC5798CB4524D38C /* Build configuration list for PBXNativeTarget "GlassCast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AF36E0072E391774B2922F55 /* Debug */,
+				AA337F601D15E0F025C5AC35 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		ACA515F3482FCA0C75B3FF39 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		70EC68423C7043B09C39EF0F /* MWDATCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACA515F3482FCA0C75B3FF39 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCore;
+		};
+		79E6BCDA26794383703E91E3 /* MWDATCamera */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACA515F3482FCA0C75B3FF39 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCamera;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 841EE2FC7E336FAC36FBC610 /* Project object */;
+}

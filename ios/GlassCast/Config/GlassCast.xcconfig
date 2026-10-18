@@ -1,0 +1,9 @@
+// Shared build settings. Personal values go in Secrets.xcconfig (git-ignored),
+// copied from Secrets.xcconfig.example.
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.glasscast.app
+DEVELOPMENT_TEAM =
+META_APP_ID =
+CLIENT_TOKEN =
+
+#include? "Secrets.xcconfig"

@@ -1,0 +1,39 @@
+# XcodeGen spec. GlassCast.xcodeproj is generated from this file:
+#   brew install xcodegen && cd ios && xcodegen
+name: GlassCast
+options:
+  bundleIdPrefix: dev.glasscast
+  deploymentTarget:
+    iOS: "17.2"
+  createIntermediateGroups: true
+packages:
+  MWDAT:
+    url: https://github.com/facebook/meta-wearables-dat-ios
+    exactVersion: 1.0.1
+targets:
+  GlassCast:
+    type: application
+    platform: iOS
+    sources:
+      - path: GlassCast
+        excludes:
+          - Config/*.example
+      - path: ../web/viewer.html
+        buildPhase: resources
+    configFiles:
+      Debug: GlassCast/Config/GlassCast.xcconfig
+      Release: GlassCast/Config/GlassCast.xcconfig
+    settings:
+      base:
+        INFOPLIST_FILE: GlassCast/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: MWDAT
+        product: MWDATCore
+      - package: MWDAT
+        product: MWDATCamera

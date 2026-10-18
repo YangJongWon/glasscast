@@ -1,0 +1,5 @@
+# Copy to local.properties (git-ignored). Android Studio adds sdk.dir automatically.
+# From https://wearables.developer.meta.com > Manage projects. Leave empty when
+# using Developer Mode in the Meta AI app.
+mwdat_application_id=
+mwdat_client_token=
