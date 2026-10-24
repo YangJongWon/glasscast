@@ -23,6 +23,7 @@
 		F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */; };
 		FD2B2F50335239E9ABAD24F7 /* PCM16Converter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8439F529F469F30A813CD680 /* PCM16Converter.swift */; };
 		FDBA4BDFE88F5996FBA531BD /* GlassesMic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD56346CA459CBB9329DE98 /* GlassesMic.swift */; };
+		FE0E001ED6C782124BB0C338 /* ConnectionIssue.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4287BA22792BE8B07302F94 /* ConnectionIssue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 		B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WearablesManager.swift; sourceTree = "<group>"; };
 		BA4CCCBA1D6920DABC6EE45C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCastApp.swift; sourceTree = "<group>"; };
+		E4287BA22792BE8B07302F94 /* ConnectionIssue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionIssue.swift; sourceTree = "<group>"; };
 		F3EA66767DD0430B70AE5C14 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -87,6 +89,7 @@
 		70C86D745E10D22AD113731F /* GlassCast */ = {
 			isa = PBXGroup;
 			children = (
+				E4287BA22792BE8B07302F94 /* ConnectionIssue.swift */,
 				8BB70259B8CB027AFE81EAB0 /* ContentView.swift */,
 				34A0CB4137DE3B45A9E9C59E /* DigitalZoom.swift */,
 				6B5180E05B60F55A736B0700 /* GalleryView.swift */,
@@ -201,6 +204,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE0E001ED6C782124BB0C338 /* ConnectionIssue.swift in Sources */,
 				CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */,
 				F2C002E87285F72E27D4B4C6 /* DigitalZoom.swift in Sources */,
 				B4A9055D1DC7335695B9E10B /* GalleryView.swift in Sources */,

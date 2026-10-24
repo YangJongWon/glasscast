@@ -20,6 +20,10 @@ struct LiveView: View {
           .resizable()
           .scaledToFit()
           .ignoresSafeArea()
+        // Covers the whole screen, black bars included, so pinch and tap work anywhere.
+        Color.clear
+          .contentShape(Rectangle())
+          .ignoresSafeArea()
           .onTapGesture { toggleControls() }
           .gesture(
             MagnifyGesture()
@@ -38,6 +42,13 @@ struct LiveView: View {
               .font(.system(size: 48, weight: .light))
           }
           Text(manager.statusText)
+          if let hint = manager.statusHint {
+            Text(hint)
+              .font(.footnote)
+              .multilineTextAlignment(.center)
+              .foregroundStyle(.white.opacity(0.6))
+              .padding(.horizontal, 40)
+          }
         }
         .foregroundStyle(.white.opacity(0.8))
       }
@@ -46,6 +57,13 @@ struct LiveView: View {
         if !controlsHidden {
           StatusBar(manager: manager)
             .transition(.move(edge: .top).combined(with: .opacity))
+        }
+        // Shown even with the controls folded away: the user needs to know.
+        if let issue = manager.connectionIssue {
+          ConnectionBanner(
+            issue: issue, retry: manager.retryConnection, dismiss: manager.dismissConnectionIssue
+          )
+          .transition(.move(edge: .top).combined(with: .opacity))
         }
         Spacer()
         if controlsHidden {
@@ -63,6 +81,7 @@ struct LiveView: View {
         }
       }
       .padding(16)
+      .animation(.snappy, value: manager.connectionIssue)
     }
     .statusBarHidden(controlsHidden)
     .sheet(isPresented: $showShareSheet) {
@@ -116,6 +135,42 @@ private struct CollapsedBar: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 6)
     .background(.ultraThinMaterial, in: Capsule())
+  }
+}
+
+/// What went wrong with the glasses and what to do, with Try again when it can help.
+private struct ConnectionBanner: View {
+  let issue: ConnectionIssue
+  let retry: () -> Void
+  let dismiss: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: issue.symbol)
+          .font(.title3)
+          .foregroundStyle(issue.kind == .device ? .orange : .red)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(issue.title).font(.subheadline.weight(.semibold))
+          Text(issue.message).font(.footnote).foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 0)
+        Button(action: dismiss) {
+          Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .accessibilityLabel("Dismiss")
+      }
+      if issue.canRetry {
+        Button(action: retry) {
+          Label("Try again", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+      }
+    }
+    .padding(12)
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+    .accessibilityElement(children: .contain)
   }
 }
 

@@ -108,6 +108,8 @@ final class WearablesManager {
   var photoSource: PhotoSource = .stream
   #endif
   var errorMessage: String?
+  /// A problem with the glasses connection, shown as a banner with what to do about it.
+  private(set) var connectionIssue: ConnectionIssue?
   var showCameraPermissionPrompt = false
 
   var isRegistered: Bool { registrationState == .registered }
@@ -124,7 +126,18 @@ final class WearablesManager {
     case .stopping: return "Stopping…"
     case .stopped:
       if sessionState == .starting { return "Connecting to glasses…" }
-      return hasActiveDevice ? "Ready" : "Put on your glasses"
+      return hasActiveDevice ? "Ready" : "Glasses not connected"
+    }
+  }
+
+  /// One line under the status explaining what to do, when the state calls for it.
+  var statusHint: String? {
+    switch streamState {
+    case .paused: return "Unfold your glasses and put them on to continue."
+    case .waitingForDevice: return "Keep your glasses on and near your phone."
+    case .stopped where sessionState != .starting && !hasActiveDevice:
+      return "Turn on your glasses, unfold them and keep them near your phone."
+    default: return nil
     }
   }
 
@@ -182,7 +195,7 @@ final class WearablesManager {
       do {
         try await wearables.startRegistration()
       } catch {
-        errorMessage = String(describing: error)
+        errorMessage = ConnectionIssue.registrationMessage(for: error)
       }
     }
   }
@@ -216,6 +229,7 @@ final class WearablesManager {
 
   /// Starts a device session if needed; the camera is added once the session reports `.started`.
   func startStreaming() {
+    connectionIssue = nil
     wantsStream = true
     UIApplication.shared.isIdleTimerDisabled = true
     // Meta recommends setting up HFP before the camera stream starts.
@@ -231,10 +245,22 @@ final class WearablesManager {
       observe(newSession)
       sessionState = .starting
       try newSession.start()
+    } catch let error as DeviceSessionError {
+      connectionIssue = ConnectionIssue(error)
+      cleanupSession()
     } catch {
       errorMessage = error.localizedDescription
       cleanupSession()
     }
+  }
+
+  func retryConnection() {
+    connectionIssue = nil
+    startStreaming()
+  }
+
+  func dismissConnectionIssue() {
+    connectionIssue = nil
   }
 
   /// Ends the session; the SDK cascades the stop to the camera and its stream.
@@ -456,6 +482,8 @@ final class WearablesManager {
           return
         }
         beginStream()
+      } catch let error as PermissionError {
+        connectionIssue = ConnectionIssue(error)
       } catch {
         errorMessage = error.localizedDescription
       }
@@ -470,6 +498,8 @@ final class WearablesManager {
       } else {
         showCameraPermissionPrompt = true
       }
+    } catch let error as PermissionError {
+      connectionIssue = ConnectionIssue(error)
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -530,6 +560,8 @@ final class WearablesManager {
     case .started:
       Task { await beginStreamIfPermitted() }
     case .stopped:
+      // Not stopped by the user (stopStreaming clears wantsStream first): the glasses went away.
+      if wantsStream, connectionIssue == nil { connectionIssue = .lost }
       cleanupSession()
     default:
       break
@@ -539,7 +571,9 @@ final class WearablesManager {
   /// A session that fails before it starts may never report `.stopped`. Drop it so the
   /// button returns to "Start live view" and the next tap creates a fresh session.
   private func handleSessionError(_ error: DeviceSessionError) {
-    errorMessage = error.localizedDescription
+    // A compatibility notice, not a failure: the session keeps working.
+    if error == .dwaOutOfStuRange { return }
+    connectionIssue = ConnectionIssue(error)
     guard sessionState != .started else { return }
     session?.stop()
     cleanupSession()
@@ -571,7 +605,7 @@ final class WearablesManager {
         if error == .photoCaptureFailed {
           self?.photoFailed(error.localizedDescription)
         } else {
-          self?.errorMessage = error.localizedDescription
+          self?.connectionIssue = ConnectionIssue(error)
         }
       }
     }.store(in: streamTokens)
