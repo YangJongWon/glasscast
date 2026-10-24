@@ -82,7 +82,9 @@ iOS Debug builds can switch to *⋯ → Photo quality → Full quality*, which u
 
 ### Recording
 
-The browser viewer can record what you're watching. Click **Record**, then **Stop** to download the file: MP4 in Safari and recent Chrome, WebM elsewhere. When sound is on as you start, it's recorded too. Recording happens on the computer, so it works the same with iOS and Android phones.
+**iPhone**: during live view, tap the red record button next to the shutter. The video is recorded as shown, with zoom applied and with sound if sound is on. It is saved as an MP4 in the app's gallery, where you can play, share or save it to Photos. Recording on Android isn't built yet.
+
+**Computer**: the browser viewer can record what you're watching. Click **Record**, then **Stop** to download the file: MP4 in Safari and recent Chrome, WebM elsewhere. When sound is on as you start, it's recorded too. Recording happens on the computer, so it works the same with iOS and Android phones.
 
 ### Sound
 

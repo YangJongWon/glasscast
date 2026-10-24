@@ -87,6 +87,9 @@ private struct StatusBar: View {
           .monospacedDigit()
       }
       Spacer()
+      if let since = manager.recordingSince {
+        RecordingTimer(since: since)
+      }
       if manager.isCapturingAudio {
         Image(systemName: "mic.fill")
           .foregroundStyle(.red)
@@ -158,6 +161,8 @@ private struct Controls: View {
             manager.wantsStream ? "Stop" : "Start live view",
             systemImage: manager.wantsStream ? "stop.fill" : "play.fill"
           )
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
           .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
@@ -184,6 +189,45 @@ private struct Controls: View {
     }
     .padding(12)
     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+  }
+}
+
+/// Starts and stops recording the live view to an MP4 in the gallery.
+private struct RecordButton: View {
+  var manager: WearablesManager
+
+  var body: some View {
+    Button {
+      if manager.isRecording { manager.stopRecording() } else { manager.startRecording() }
+    } label: {
+      ZStack {
+        RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.1))
+        if manager.isRecording {
+          RoundedRectangle(cornerRadius: 4).fill(.red).frame(width: 18, height: 18)
+        } else {
+          Circle().fill(.red).frame(width: 22, height: 22)
+        }
+      }
+      .frame(width: 48, height: 48)
+    }
+    .disabled(!manager.isStreaming && !manager.isRecording)
+    .opacity(manager.isStreaming || manager.isRecording ? 1 : 0.4)
+    .accessibilityLabel(manager.isRecording ? "Stop recording" : "Record video")
+  }
+}
+
+/// Red "REC 0:12" counter shown while recording.
+private struct RecordingTimer: View {
+  let since: Date
+
+  var body: some View {
+    TimelineView(.periodic(from: since, by: 1)) { context in
+      let seconds = max(0, Int(context.date.timeIntervalSince(since)))
+      Label(String(format: "%d:%02d", seconds / 60, seconds % 60), systemImage: "record.circle")
+        .foregroundStyle(.red)
+        .monospacedDigit()
+    }
+    .accessibilityLabel("Recording")
   }
 }
 
@@ -267,7 +311,8 @@ private struct ShutterRow: View {
       .opacity(manager.isStreaming ? 1 : 0.4)
       .accessibilityLabel("Take a photo with the glasses")
 
-      Group {
+      HStack(spacing: 10) {
+        RecordButton(manager: manager)
         if LiveTextImage.isSupported {
           Button {
             lookUp = manager.frame.map(FrozenFrame.init)

@@ -1,15 +1,17 @@
+import AVFoundation
 import Foundation
 import Observation
 import UIKit
 
-/// Photos taken with the glasses camera, kept as JPEG files in the app's Documents folder
-/// (visible in the Files app) and listed newest first.
+/// Photos taken with the glasses camera (JPEG) and live-view recordings (MP4), kept in the
+/// app's Documents folder (visible in the Files app) and listed newest first.
 @Observable
 @MainActor
 final class PhotoStore {
   struct Photo: Identifiable, Hashable {
     let url: URL
     var id: URL { url }
+    var isVideo: Bool { url.pathExtension.lowercased() == "mp4" }
   }
 
   private(set) var photos: [Photo] = []
@@ -42,6 +44,17 @@ final class PhotoStore {
     return photo
   }
 
+  /// A file URL for a new recording; pass it to `addVideo(at:)` once it is finished.
+  func newVideoURL(startedAt date: Date = Date()) -> URL {
+    directory.appendingPathComponent("glasscast-\(nameFormatter.string(from: date)).mp4")
+  }
+
+  func addVideo(at url: URL) {
+    let photo = Photo(url: url)
+    photos.insert(photo, at: 0)
+    latestThumbnail = Self.thumbnail(at: url)
+  }
+
   func delete(_ photo: Photo) {
     try? FileManager.default.removeItem(at: photo.url)
     photos.removeAll { $0 == photo }
@@ -53,13 +66,19 @@ final class PhotoStore {
       (try? FileManager.default.contentsOfDirectory(
         at: directory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
     // Names embed the capture time, so name order is time order.
-    photos = urls.filter { $0.pathExtension.lowercased() == "jpg" }
+    photos = urls.filter { ["jpg", "mp4"].contains($0.pathExtension.lowercased()) }
       .sorted { $0.lastPathComponent > $1.lastPathComponent }
       .map(Photo.init)
     latestThumbnail = photos.first.flatMap { Self.thumbnail(at: $0.url) }
   }
 
   static func thumbnail(at url: URL, maxPixel: CGFloat = 240) -> UIImage? {
+    if url.pathExtension.lowercased() == "mp4" {
+      let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+      generator.appliesPreferredTrackTransform = true
+      generator.maximumSize = CGSize(width: maxPixel, height: maxPixel)
+      return (try? generator.copyCGImage(at: .zero, actualTime: nil)).map(UIImage.init(cgImage:))
+    }
     guard let data = try? Data(contentsOf: url) else { return nil }
     return thumbnail(for: data, maxPixel: maxPixel)
   }

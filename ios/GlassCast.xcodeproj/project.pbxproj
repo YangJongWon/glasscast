@@ -11,6 +11,7 @@
 		1EA8FDE1852C8EF6B154875B /* LiveTextImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46AAAB690DA5E7532A0B5FA7 /* LiveTextImage.swift */; };
 		290FBC77CFA6B7430602E02C /* PhotoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6226F3C9B7315FC84602B88 /* PhotoStore.swift */; };
 		4597C2130F9BAB16835A4DC4 /* viewer.html in Resources */ = {isa = PBXBuildFile; fileRef = 371774609D43F1958B355F48 /* viewer.html */; };
+		70BC5F2FDD46CC92C5725767 /* VideoRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7731A40F4D71C40B4DBB59 /* VideoRecorder.swift */; };
 		7AD5BD38CD3894D869181409 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 79E6BCDA26794383703E91E3 /* MWDATCamera */; };
 		7DD2FA44FC78AB45FFE5FF97 /* LiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2658E48CC52E1EB3AE1C1194 /* LiveView.swift */; };
 		96DA2D6A0B843A66104C0979 /* WearablesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */; };
@@ -29,6 +30,7 @@
 		34A0CB4137DE3B45A9E9C59E /* DigitalZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigitalZoom.swift; sourceTree = "<group>"; };
 		371774609D43F1958B355F48 /* viewer.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = viewer.html; sourceTree = "<group>"; };
 		46AAAB690DA5E7532A0B5FA7 /* LiveTextImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTextImage.swift; sourceTree = "<group>"; };
+		4E7731A40F4D71C40B4DBB59 /* VideoRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRecorder.swift; sourceTree = "<group>"; };
 		5CD56346CA459CBB9329DE98 /* GlassesMic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesMic.swift; sourceTree = "<group>"; };
 		6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GlassCast.xcconfig; sourceTree = "<group>"; };
 		6B5180E05B60F55A736B0700 /* GalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryView.swift; sourceTree = "<group>"; };
@@ -97,6 +99,7 @@
 				B220E5BE58233BBDE7E626FC /* NetworkInfo.swift */,
 				8439F529F469F30A813CD680 /* PCM16Converter.swift */,
 				A6226F3C9B7315FC84602B88 /* PhotoStore.swift */,
+				4E7731A40F4D71C40B4DBB59 /* VideoRecorder.swift */,
 				B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */,
 				C82EC8EA0C4E769F9A450481 /* Config */,
 			);
@@ -209,6 +212,7 @@
 				C9D55693FB8B17A91A27EE8C /* NetworkInfo.swift in Sources */,
 				FD2B2F50335239E9ABAD24F7 /* PCM16Converter.swift in Sources */,
 				290FBC77CFA6B7430602E02C /* PhotoStore.swift in Sources */,
+				70BC5F2FDD46CC92C5725767 /* VideoRecorder.swift in Sources */,
 				96DA2D6A0B843A66104C0979 /* WearablesManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

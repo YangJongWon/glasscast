@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 /// Photos taken with the glasses, newest first. Tap one to view, share or delete it.
@@ -14,13 +15,23 @@ struct GalleryView: View {
           ContentUnavailableView(
             "No photos yet",
             systemImage: "camera",
-            description: Text("Start live view and tap the shutter to take a photo with your glasses."))
+            description: Text(
+              "Start live view, then tap the shutter to take a photo with your glasses or the red button to record."))
         } else {
           ScrollView {
             LazyVGrid(columns: columns, spacing: 2) {
               ForEach(store.photos) { photo in
                 NavigationLink(value: photo) {
                   Thumbnail(url: photo.url)
+                    .overlay(alignment: .bottomLeading) {
+                      if photo.isVideo {
+                        Image(systemName: "video.fill")
+                          .font(.caption)
+                          .foregroundStyle(.white)
+                          .shadow(radius: 2)
+                          .padding(6)
+                      }
+                    }
                 }
               }
             }
@@ -69,7 +80,9 @@ private struct PhotoDetail: View {
   var body: some View {
     ZStack {
       Color.black.ignoresSafeArea()
-      if let image {
+      if photo.isVideo {
+        RecordingPlayer(url: photo.url)
+      } else if let image {
         // Photos are full resolution, so Live Text works best here.
         if LiveTextImage.isSupported {
           LiveTextImage(image: image)
@@ -95,7 +108,22 @@ private struct PhotoDetail: View {
       }
     }
     .task(id: photo.url) {
+      guard !photo.isVideo else { return }
       image = await Task.detached { UIImage(contentsOfFile: photo.url.path) }.value
     }
+  }
+}
+
+private struct RecordingPlayer: View {
+  let url: URL
+  @State private var player: AVPlayer?
+
+  var body: some View {
+    VideoPlayer(player: player)
+      .onAppear {
+        player = AVPlayer(url: url)
+        player?.play()
+      }
+      .onDisappear { player?.pause() }
   }
 }

@@ -101,6 +101,9 @@ final class WearablesManager {
   private(set) var isTakingPhoto = false
   /// Transfer progress of a full-quality photo, 0...1; nil otherwise.
   private(set) var photoProgress: Double?
+  /// When the current recording started; nil while not recording.
+  private(set) var recordingSince: Date?
+  var isRecording: Bool { recordingSince != nil }
   #if EXPERIMENTAL_PHOTO
   var photoSource: PhotoSource = .stream
   #endif
@@ -139,6 +142,7 @@ final class WearablesManager {
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
   @ObservationIgnored private let mic = GlassesMic()
   @ObservationIgnored private let digitalZoom = DigitalZoom()
+  @ObservationIgnored private let recorder = VideoRecorder()
   @ObservationIgnored private var photoTimeout: Task<Void, Never>?
   #if EXPERIMENTAL_PHOTO
   @ObservationIgnored private var photoObserved = false
@@ -332,6 +336,30 @@ final class WearablesManager {
   }
   #endif
 
+  // MARK: - Recording
+
+  /// Records the live view as shown (zoom included), with sound when it is on.
+  func startRecording() {
+    guard isStreaming, !isRecording else { return }
+    let now = Date()
+    recorder.start(to: photos.newVideoURL(startedAt: now), includesAudio: isCapturingAudio)
+    recordingSince = now
+  }
+
+  func stopRecording() {
+    guard isRecording else { return }
+    recordingSince = nil
+    recorder.stop { [weak self] result in
+      switch result {
+      case .success(let url):
+        self?.photos.addVideo(at: url)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+      case .failure(let error):
+        self?.errorMessage = error.localizedDescription
+      }
+    }
+  }
+
   // MARK: - Audio
 
   func setAudioEnabled(_ enabled: Bool) {
@@ -394,8 +422,12 @@ final class WearablesManager {
     if useMic != mic.isRunning {
       if useMic {
         let server = self.server
+        let recorder = self.recorder
         do {
-          try mic.start { server.publishAudio($0) }
+          try mic.start {
+            server.publishAudio($0)
+            recorder.appendAudio($0)
+          }
         } catch {
           audioEnabled = false
           errorMessage = error.localizedDescription
@@ -520,9 +552,11 @@ final class WearablesManager {
     }.store(in: streamTokens)
 
     let digitalZoom = self.digitalZoom
+    let recorder = self.recorder
     stream.videoFramePublisher.listen { [weak self] frame in
       guard let raw = frame.makeUIImage() else { return }
       let image = digitalZoom.apply(to: raw)
+      recorder.append(image)
       // Hand the frame to the server straight from the SDK thread; the UI hops to main.
       server.publish(image)
       Task { @MainActor in self?.didReceive(image) }
@@ -548,6 +582,7 @@ final class WearablesManager {
       stream.audioFramePublisher.listen { frame in
         guard let pcm = converter.convert(frame.pcmBuffer) else { return }
         server.publishAudio(pcm)
+        recorder.appendAudio(pcm)
       }.store(in: streamTokens)
     }
     #endif
@@ -562,6 +597,8 @@ final class WearablesManager {
     camera?.stop()
     camera = nil
     photoFailed("Live view stopped before the photo arrived.")
+    // Keep what was recorded so far.
+    stopRecording()
     #if EXPERIMENTAL_PHOTO
     photoObserved = false
     photoState = .stopped
