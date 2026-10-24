@@ -80,6 +80,10 @@ While live view runs, tap the round shutter button to have the **glasses camera*
 
 iOS Debug builds can switch to *⋯ → Photo quality → Full quality*, which uses the experimental `Camera.photo` API at full resolution. Like stream audio, it is compiled only into Debug builds (`EXPERIMENTAL_PHOTO`).
 
+### Recording
+
+The browser viewer can record what you're watching. Click **Record**, then **Stop** to download the file: MP4 in Safari and recent Chrome, WebM elsewhere. When sound is on as you start, it's recorded too. Recording happens on the computer, so it works the same with iOS and Android phones.
+
 ### Sound
 
 Sound is off by default. Tap the microphone button in the app to stream your voice from the glasses' microphone. The app asks for microphone access the first time.

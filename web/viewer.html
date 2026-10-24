@@ -128,6 +128,9 @@
     text-decoration: none;
   }
   #photoToast[hidden] { display: none; }
+  #record.on { border-color: var(--live); color: var(--live); font-variant-numeric: tabular-nums; }
+  #recPill { color: var(--live); }
+  #recPill[hidden] { display: none; }
   #photoToast img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; display: block; }
   body.clean #photoToast { display: none; }
 </style>
@@ -147,12 +150,14 @@
   <span class="pill" id="fps">– fps</span>
   <span class="pill" id="res">–</span>
   <span class="pill" id="clients">– viewers</span>
+  <span class="pill" id="recPill" hidden><span class="dot live"></span>REC</span>
 </div>
 
 <div id="bottom" class="bar">
   <span class="hint">OBS / VLC: <code id="streamUrl"></code> · sound: <code id="audioUrl"></code></span>
   <span>
     <button id="capture" type="button" hidden>Take photo</button>
+    <button id="record" type="button" hidden>Record</button>
     <button id="sound" type="button" hidden>Sound off</button>
     <a class="button" id="snapshot" href="snapshot.jpg" download="glasscast.jpg">Snapshot</a>
     <button id="fullscreen" type="button">Fullscreen</button>
@@ -209,6 +214,7 @@
       $('clients').textContent = s.clients + (s.clients === 1 ? ' viewer' : ' viewers');
       audio.setAvailable(!!s.audio);
       photos.update(s);
+      recorder.update(s);
       // Reconnect the image as soon as the phone starts sending again.
       if (s.state === 'streaming' && !placeholder.hidden) connect();
     } catch (e) {
@@ -227,8 +233,18 @@
     let available = false;
     let wanted = params.has('audio');
     let ctx = null;
+    let out = null; // all audio goes through here: speakers, plus the recorder when recording
     let controller = null;
     let retryTimer = null;
+
+    function context() {
+      if (!ctx) {
+        ctx = new AudioContext();
+        out = ctx.createGain();
+        out.connect(ctx.destination);
+      }
+      return ctx;
+    }
 
     function render() {
       button.hidden = !available;
@@ -256,7 +272,7 @@
             if (header.length < 44) continue;
             rate = new DataView(header.buffer).getUint32(24, true);
             bytes = header.subarray(44);
-            ctx = ctx || new AudioContext();
+            context();
           }
           if (carry) { bytes = concat(carry, bytes); carry = null; }
           if (bytes.length % 2) { carry = bytes.slice(-1); bytes = bytes.subarray(0, bytes.length - 1); }
@@ -267,7 +283,7 @@
           for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
           const source = ctx.createBufferSource();
           source.buffer = buffer;
-          source.connect(ctx.destination);
+          source.connect(out);
           const now = ctx.currentTime;
           if (next < now || next - now > maxLead) next = now + 0.05;
           source.start(next);
@@ -299,8 +315,7 @@
     button.addEventListener('click', () => {
       wanted = !wanted;
       if (wanted) {
-        ctx = ctx || new AudioContext();
-        ctx.resume();
+        context().resume();
         play();
       } else {
         stop();
@@ -309,6 +324,14 @@
     });
 
     return {
+      /** A MediaStream carrying everything the viewer plays, for the recorder. */
+      tap() {
+        const node = context().createMediaStreamDestination();
+        out.connect(node);
+        ctx.resume();
+        return { stream: node.stream, release: () => out.disconnect(node) };
+      },
+      isPlaying: () => wanted && available,
       setAvailable(value) {
         if (value === available) return;
         available = value;
@@ -361,6 +384,88 @@
           ready();
         }
         seq = latest;
+      },
+    };
+  })();
+
+  // Recording happens in this browser, so it works the same for iOS and Android phones:
+  // frames from the <img> are painted onto a canvas, and the canvas plus the viewer's
+  // audio (when sound is on) go into a MediaRecorder. Stopping downloads the file.
+  const recorder = (() => {
+    const button = $('record');
+    const pill = $('recPill');
+    const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+    const type = window.MediaRecorder ? types.find((t) => MediaRecorder.isTypeSupported(t)) : null;
+    let rec = null;
+    let audioTap = null;
+    let started = 0;
+    let tick = null;
+    let paint = null;
+
+    function start() {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.naturalWidth || 504;
+      canvas.height = video.naturalHeight || 896;
+      const g = canvas.getContext('2d');
+      paint = setInterval(() => {
+        if (video.naturalWidth && (canvas.width !== video.naturalWidth || canvas.height !== video.naturalHeight)) {
+          canvas.width = video.naturalWidth;
+          canvas.height = video.naturalHeight;
+        }
+        g.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }, 1000 / 30);
+
+      const stream = canvas.captureStream(30);
+      if (audio.isPlaying()) {
+        audioTap = audio.tap();
+        audioTap.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+      }
+      const chunks = [];
+      rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 5_000_000 });
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = () => {
+        const blob = new Blob(chunks, { type: rec.mimeType });
+        const ext = rec.mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'glasscast-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.' + ext;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        rec = null;
+      };
+      rec.start(1000);
+      started = Date.now();
+      tick = setInterval(render, 500);
+      render();
+    }
+
+    function stop() {
+      clearInterval(paint);
+      clearInterval(tick);
+      audioTap?.release();
+      audioTap = null;
+      rec?.stop();
+      render();
+    }
+
+    function render() {
+      const on = !!rec && rec.state === 'recording';
+      pill.hidden = !on;
+      button.classList.toggle('on', on);
+      if (on) {
+        const s = Math.floor((Date.now() - started) / 1000);
+        button.textContent = 'Stop ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+      } else {
+        button.textContent = 'Record';
+      }
+    }
+
+    button.addEventListener('click', () => (rec ? stop() : start()));
+
+    return {
+      update(s) {
+        // Recording needs MediaRecorder; it keeps going through brief drops in the stream.
+        button.hidden = !type || (s.state !== 'streaming' && !rec);
       },
     };
   })();
