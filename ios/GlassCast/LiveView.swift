@@ -4,6 +4,7 @@ import SwiftUI
 struct LiveView: View {
   @Bindable var manager: WearablesManager
   @State private var showShareSheet = false
+  @State private var showGallery = false
 
   var body: some View {
     ZStack {
@@ -30,13 +31,16 @@ struct LiveView: View {
       VStack {
         StatusBar(manager: manager)
         Spacer()
-        Controls(manager: manager, showShareSheet: $showShareSheet)
+        Controls(manager: manager, showShareSheet: $showShareSheet, showGallery: $showGallery)
       }
       .padding(16)
     }
     .sheet(isPresented: $showShareSheet) {
       ShareSheet(manager: manager)
         .presentationDetents([.medium])
+    }
+    .sheet(isPresented: $showGallery) {
+      GalleryView(store: manager.photos)
     }
     .confirmationDialog(
       "Allow camera access",
@@ -87,6 +91,16 @@ private struct StatusBar: View {
           }
         }
         #endif
+        #if EXPERIMENTAL_PHOTO
+        Picker(
+          "Photo quality",
+          selection: Binding(get: { manager.photoSource }, set: { manager.photoSource = $0 })
+        ) {
+          ForEach(WearablesManager.PhotoSource.allCases) { source in
+            Text(source.label).tag(source)
+          }
+        }
+        #endif
         Button("Disconnect glasses", role: .destructive) { manager.disconnectGlasses() }
       } label: {
         Image(systemName: "ellipsis.circle")
@@ -102,9 +116,12 @@ private struct StatusBar: View {
 private struct Controls: View {
   @Bindable var manager: WearablesManager
   @Binding var showShareSheet: Bool
+  @Binding var showGallery: Bool
 
   var body: some View {
     VStack(spacing: 12) {
+      ShutterRow(manager: manager, showGallery: $showGallery)
+
       Picker("Quality", selection: $manager.quality) {
         ForEach(WearablesManager.Quality.allCases) { quality in
           Text(quality.label).tag(quality)
@@ -150,6 +167,54 @@ private struct Controls: View {
     }
     .padding(12)
     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+  }
+}
+
+/// Latest photo on the left, the glasses shutter in the middle.
+private struct ShutterRow: View {
+  var manager: WearablesManager
+  @Binding var showGallery: Bool
+
+  var body: some View {
+    HStack {
+      Button {
+        showGallery = true
+      } label: {
+        Group {
+          if let thumbnail = manager.photos.latestThumbnail {
+            Image(uiImage: thumbnail).resizable().scaledToFill()
+          } else {
+            Image(systemName: "photo.on.rectangle").foregroundStyle(.secondary)
+          }
+        }
+        .frame(width: 48, height: 48)
+        .background(.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+      }
+      .accessibilityLabel("Photos")
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      Button {
+        manager.takePhoto()
+      } label: {
+        ZStack {
+          Circle().strokeBorder(.white, lineWidth: 4).frame(width: 68, height: 68)
+          Circle().fill(.white).frame(width: 54, height: 54)
+          if manager.isTakingPhoto {
+            if let progress = manager.photoProgress {
+              ProgressView(value: progress).progressViewStyle(.circular).tint(.black)
+            } else {
+              ProgressView().tint(.black)
+            }
+          }
+        }
+      }
+      .disabled(!manager.isStreaming || manager.isTakingPhoto)
+      .opacity(manager.isStreaming ? 1 : 0.4)
+      .accessibilityLabel("Take a photo with the glasses")
+
+      Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+    }
   }
 }
 

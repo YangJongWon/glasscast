@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Checks that a GlassCast endpoint (phone app or mock_server.py) speaks the protocol.
 
-    python3 tools/check_stream.py 192.168.0.12:8080
+    python3 tools/check_stream.py 192.168.0.12:8080 [--capture]
 
 Fetches /, /status and /snapshot.jpg, reads ~3 s of /stream to measure the
 frame rate, then opens more than the allowed number of viewers to check the
 limit and that dropping one viewer leaves the others streaming. If /status
-reports audio on, it also reads ~2 s of /audio and checks its rate.
+reports audio on, it also reads ~2 s of /audio and checks its rate. With
+--capture it asks the glasses for a photo and waits for it at /photo.jpg.
 Standard library only.
 """
 
@@ -75,6 +76,22 @@ class StreamReader:
         self.sock.close()
 
 
+def check_capture(base, check):
+    _, _, body = get(base, "/status")
+    before = json.loads(body)["photo"]
+    req = urllib.request.Request(base + "/capture", method="POST")
+    with urllib.request.urlopen(req, timeout=5) as res:
+        check("POST /capture is accepted", res.status == 202, f"HTTP {res.status}")
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        _, _, body = get(base, "/status")
+        if json.loads(body)["photo"] > before:
+            break
+        time.sleep(0.5)
+    status, ctype, body = get(base, "/photo.jpg")
+    check("the photo arrives at /photo.jpg", ctype == "image/jpeg" and body[:2] == b"\xff\xd8", f"{len(body)} bytes")
+
+
 def check_audio(host, port, available, check):
     sock = socket.create_connection((host, port), timeout=5)
     try:
@@ -106,9 +123,10 @@ def check_audio(host, port, available, check):
 
 
 def main():
-    if len(sys.argv) != 2:
+    args = [a for a in sys.argv[1:] if a != "--capture"]
+    if len(args) != 1:
         sys.exit(__doc__)
-    target = sys.argv[1].removeprefix("http://").rstrip("/")
+    target = args[0].removeprefix("http://").rstrip("/")
     host, _, port = target.partition(":")
     port = int(port or 8080)
     base = f"http://{host}:{port}"
@@ -133,6 +151,8 @@ def main():
         check("GET /snapshot.jpg returns a JPEG", False, f"HTTP {e.code} - is the glasses stream running?")
 
     check_audio(host, port, info.get("audio", False), check)
+    if "--capture" in sys.argv:
+        check_capture(base, check)
 
     try:
         get(base, "/nope")

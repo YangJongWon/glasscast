@@ -9,7 +9,9 @@ import UIKit
 /// - `GET /stream`       → `multipart/x-mixed-replace` JPEG stream
 /// - `GET /snapshot.jpg` → the newest frame
 /// - `GET /audio`        → glasses microphone as an endless 16 kHz mono WAV (503 while off)
-/// - `GET /status`       → JSON `{state, fps, width, height, clients, audio}`
+/// - `GET /photo.jpg`    → the newest photo taken with the glasses (404 before the first)
+/// - `POST /capture`     → asks the glasses to take a photo (202; 409 unless streaming)
+/// - `GET /status`       → JSON `{state, fps, width, height, clients, audio, photo}`
 ///
 /// All mutable state is confined to `queue`. Only the newest frame is kept, and each
 /// stream client is sent the newest frame whenever its previous send finishes, so a
@@ -36,12 +38,17 @@ final class MJPEGServer: @unchecked Sendable {
   var onViewerCountChange: ((Int) -> Void)?
   /// Called on the main queue when the listener fails (e.g. port already in use).
   var onError: ((String) -> Void)?
+  /// Called on the main queue for `POST /capture`.
+  var onCaptureRequest: (() -> Void)?
 
   private let queue = DispatchQueue(label: "dev.glasscast.mjpeg-server")
   private var listener: NWListener?
   private var streamClients: [ObjectIdentifier: StreamClient] = [:]
   private var audioClients: [ObjectIdentifier: AudioClient] = [:]
   private var audioAvailable = false
+  private var latestPhoto: Data?
+  /// Increments with every photo so viewers can tell when a new one arrived.
+  private var photoSeq = 0
   private var status = Status()
 
   private var latestImage: UIImage?
@@ -116,6 +123,14 @@ final class MJPEGServer: @unchecked Sendable {
     queue.async { [self] in change(&status) }
   }
 
+  /// Makes a new glasses photo available at `/photo.jpg`.
+  func publishPhoto(_ jpeg: Data) {
+    queue.async { [self] in
+      latestPhoto = jpeg
+      photoSeq += 1
+    }
+  }
+
   /// Opens or closes `/audio`. Closing hangs up every audio viewer.
   func setAudioAvailable(_ available: Bool) {
     queue.async { [self] in
@@ -171,11 +186,15 @@ final class MJPEGServer: @unchecked Sendable {
   private func route(_ head: String, on connection: NWConnection) {
     let requestLine = head.split(separator: "\r\n", maxSplits: 1).first ?? ""
     let parts = requestLine.split(separator: " ")
+    let path = parts.count >= 2 ? parts[1].split(separator: "?", maxSplits: 1).first.map(String.init) ?? "/" : "/"
+    if parts.count >= 2, parts[0] == "POST", path == "/capture" {
+      capture(on: connection)
+      return
+    }
     guard parts.count >= 2, parts[0] == "GET" || parts[0] == "HEAD" else {
       respond(on: connection, status: "405 Method Not Allowed", type: "text/plain", body: Data("Method not allowed\n".utf8))
       return
     }
-    let path = parts[1].split(separator: "?", maxSplits: 1).first.map(String.init) ?? "/"
 
     switch path {
     case "/", "/index.html":
@@ -188,6 +207,12 @@ final class MJPEGServer: @unchecked Sendable {
       } else {
         respond(on: connection, status: "503 Service Unavailable", type: "text/plain", body: Data("No frame yet\n".utf8))
       }
+    case "/photo.jpg":
+      if let latestPhoto {
+        respond(on: connection, status: "200 OK", type: "image/jpeg", body: latestPhoto)
+      } else {
+        respond(on: connection, status: "404 Not Found", type: "text/plain", body: Data("No photo yet\n".utf8))
+      }
     case "/stream":
       startStream(on: connection)
     case "/audio":
@@ -195,6 +220,16 @@ final class MJPEGServer: @unchecked Sendable {
     default:
       respond(on: connection, status: "404 Not Found", type: "text/plain", body: Data("Not found\n".utf8))
     }
+  }
+
+  /// The request body (if any) is ignored; the photo arrives later at `/photo.jpg`.
+  private func capture(on connection: NWConnection) {
+    guard status.state == "streaming" else {
+      respond(on: connection, status: "409 Conflict", type: "text/plain", body: Data("Live view isn't running\n".utf8))
+      return
+    }
+    DispatchQueue.main.async { [weak self] in self?.onCaptureRequest?() }
+    respond(on: connection, status: "202 Accepted", type: "text/plain", body: Data("Taking a photo\n".utf8))
   }
 
   private func respond(on connection: NWConnection, status: String, type: String, body: Data) {
@@ -394,6 +429,7 @@ final class MJPEGServer: @unchecked Sendable {
       "height": status.height,
       "clients": streamClients.count,
       "audio": audioAvailable,
+      "photo": photoSeq,
     ]
     return (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
   }

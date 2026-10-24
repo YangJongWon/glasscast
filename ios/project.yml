@@ -33,10 +33,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
       configs:
-        # Experimental DAT camera-stream audio. Apps using experimental DAT features can't
-        # be published, so only Debug builds compile it; Release (Archive) never includes it.
+        # Experimental DAT features (camera-stream audio, full-quality photos). Apps using
+        # them can't be published, so only Debug builds compile them; Release never does.
         Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) EXPERIMENTAL_AUDIO"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) EXPERIMENTAL_AUDIO EXPERIMENTAL_PHOTO"
     dependencies:
       - package: MWDAT
         product: MWDATCore

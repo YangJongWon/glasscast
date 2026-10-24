@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Desktop stand-in for the GlassCast phone app.
 
-Serves web/viewer.html and the same /stream, /snapshot.jpg, /audio and
-/status endpoints the iOS and Android apps expose, looping over a folder of
-JPEG frames. /audio plays a short beep once a second in place of the glasses
-microphone. Use it to work on the viewer, or to set up OBS/VLC, without glasses.
+Serves web/viewer.html and the same /stream, /snapshot.jpg, /audio,
+/photo.jpg, POST /capture and /status endpoints the iOS and Android apps
+expose, looping over a folder of JPEG frames. /audio plays a short beep once a
+second in place of the glasses microphone, and /capture "takes" the current
+frame as the photo. Use it to work on the viewer, or to set up OBS/VLC, without glasses.
 
     ffmpeg -i clip.mp4 -vf "fps=24,scale=504:896" frames/%04d.jpg
     python3 tools/mock_server.py frames/ --port 8080
@@ -39,6 +40,8 @@ class FrameHub:
         self.clients = 0
         self.fps = 0.0
         self.size = (0, 0)
+        self.photo = None
+        self.photo_seq = 0
 
     def publish(self, frame):
         with self.cond:
@@ -142,6 +145,7 @@ def make_handler(hub, viewer):
                         "height": hub.size[1],
                         "clients": hub.clients,
                         "audio": True,
+                        "photo": hub.photo_seq,
                     }
                 ).encode()
                 self.send_bytes(200, "application/json", body)
@@ -154,6 +158,11 @@ def make_handler(hub, viewer):
                 self.stream()
             elif path == "/audio":
                 self.audio()
+            elif path == "/photo.jpg":
+                if hub.photo is None:
+                    self.send_bytes(404, "text/plain", b"No photo yet\n")
+                else:
+                    self.send_bytes(200, "image/jpeg", hub.photo)
             else:
                 self.send_bytes(404, "text/plain", b"Not found\n")
 
@@ -190,6 +199,15 @@ def make_handler(hub, viewer):
             finally:
                 with hub.cond:
                     hub.clients -= 1
+
+        def do_POST(self):
+            if self.path.split("?", 1)[0] != "/capture":
+                self.send_bytes(405, "text/plain", b"Method not allowed\n")
+                return
+            with hub.cond:
+                hub.photo = hub.frame
+                hub.photo_seq += 1
+            self.send_bytes(202, "text/plain", b"Taking a photo\n")
 
         def audio(self):
             self.send_response(200)

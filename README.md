@@ -70,6 +70,16 @@ Open `android/` in Android Studio and run the `app` configuration on a real phon
    - **OBS**: add a *Browser* source with `http://<phone-ip>:8080/?clean`, or a *Media Source* with "Local file" unchecked and input `http://<phone-ip>:8080/stream`.
    - **VLC**: *Open Network Stream* → `http://<phone-ip>:8080/stream`.
 
+### Photos
+
+While live view runs, tap the round shutter button to have the **glasses camera** take a full photo. It is much sharper than a frame of the live stream. A computer can do the same with the viewer's **Take photo** button.
+
+- **iOS**: photos are kept in the app (tap the thumbnail) and in *Files → On My iPhone → GlassCast → Photos*. Use *Share → Save Image* to add one to your library.
+- **Android**: photos are saved to *Pictures/GlassCast*, so they also appear in your gallery app.
+- The newest photo is also available at `http://<phone-ip>:8080/photo.jpg`.
+
+iOS Debug builds can switch to *⋯ → Photo quality → Full quality*, which uses the experimental `Camera.photo` API at full resolution. Like stream audio, it is compiled only into Debug builds (`EXPERIMENTAL_PHOTO`).
+
 ### Sound
 
 Sound is off by default. Tap the microphone button in the app to stream your voice from the glasses' microphone. The app asks for microphone access the first time.
@@ -93,28 +103,33 @@ Both apps (and `tools/mock_server.py`) serve the same HTTP API on port **8080**.
 | `GET /` | the viewer page (`web/viewer.html`) |
 | `GET /stream` | `multipart/x-mixed-replace; boundary=glasscast`, one JPEG per part |
 | `GET /audio` | `audio/wav`, an endless 16 kHz mono 16-bit stream (`503` while sound is off) |
+| `GET /photo.jpg` | the newest photo taken with the glasses (`404` before the first) |
+| `POST /capture` | asks the glasses to take a photo: `202`, or `409` unless live view is running |
 | `GET /snapshot.jpg` | the newest frame (`503` before the first frame) |
-| `GET /status` | `{"state", "fps", "width", "height", "clients", "platform", "audio"}` |
+| `GET /status` | `{"state", "fps", "width", "height", "clients", "platform", "audio", "photo"}` |
 
 `state` is one of `streaming`, `paused`, `starting`, `waitingForDevice`, `stopped`. Up to 4 viewers can watch `/stream` at once; extra viewers get `503`. The server keeps only the newest frame, so a slow viewer skips frames instead of falling behind.
 
 `/audio` starts with a 44-byte WAV header whose size fields are `0xFFFFFFFF`, followed by raw little-endian PCM until the connection closes. The server buffers about one second per listener and drops the oldest audio beyond that. Up to 4 listeners are allowed. Turning sound off closes every `/audio` connection. Audio and video are separate connections, so they can drift slightly apart.
 
+`photo` in `/status` counts the photos taken since the app started. A viewer that sees it go up can fetch the new photo from `/photo.jpg`.
+
 ## Development tools
 
 ```sh
 # Desktop stand-in for the phone: loops a folder of JPEGs through the same API,
-# with a beep once a second on /audio.
+# with a beep once a second on /audio and the current frame as the photo for /capture.
 ffmpeg -i clip.mp4 -vf "fps=24,scale=504:896" frames/%04d.jpg
 python3 tools/mock_server.py frames/ --port 8080
 
 # Check that a phone (or the mock) speaks the protocol correctly.
+# Add --capture to also take a photo with the glasses and fetch it.
 python3 tools/check_stream.py 192.168.0.12:8080
 ```
 
 ## Limitations and notes
 
-- **No authentication.** Anyone on the same network can open the stream while it's running, including sound when it is on. Use it on networks you trust.
+- **No authentication.** Anyone on the same network can open the stream while it's running, including sound when it is on, and can take photos with `POST /capture`. Use it on networks you trust.
 - **Same network only.** Remote viewing over the internet (WebRTC) is planned but not built yet.
 - **iOS foreground only.** The SDK pauses decoded (`raw`) streams when the app is backgrounded, so keep GlassCast open.
 - **Bandwidth.** Video travels over Bluetooth Classic. The SDK may lower resolution, then frame rate (never below 15 fps), when the link is weak. Lower quality settings often look sharper.

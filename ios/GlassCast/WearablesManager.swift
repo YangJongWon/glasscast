@@ -50,6 +50,25 @@ final class WearablesManager {
   }
   #endif
 
+  #if EXPERIMENTAL_PHOTO
+  /// How photos are taken. Only Debug builds compile this: `Camera.photo` is an
+  /// experimental DAT feature, and apps using it can't be published yet.
+  enum PhotoSource: String, CaseIterable, Identifiable {
+    /// `Stream.capturePhoto`, taken while live view runs; fine to ship.
+    case stream
+    /// `Camera.photo` at full resolution and high quality (experimental).
+    case fullQuality
+
+    var id: String { rawValue }
+    var label: String {
+      switch self {
+      case .stream: return "Standard"
+      case .fullQuality: return "Full quality (experimental)"
+      }
+    }
+  }
+  #endif
+
   // MARK: - Observed state
 
   private(set) var registrationState: RegistrationState
@@ -68,6 +87,15 @@ final class WearablesManager {
   private(set) var isCapturingAudio = false
   #if EXPERIMENTAL_AUDIO
   private(set) var audioSource: AudioSource = .bluetooth
+  #endif
+  /// Photos taken with the glasses camera.
+  let photos = PhotoStore()
+  /// A photo was requested and hasn't arrived yet.
+  private(set) var isTakingPhoto = false
+  /// Transfer progress of a full-quality photo, 0...1; nil otherwise.
+  private(set) var photoProgress: Double?
+  #if EXPERIMENTAL_PHOTO
+  var photoSource: PhotoSource = .stream
   #endif
   var errorMessage: String?
   var showCameraPermissionPrompt = false
@@ -103,6 +131,12 @@ final class WearablesManager {
   @ObservationIgnored private var frameTimes: [CFTimeInterval] = []
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
   @ObservationIgnored private let mic = GlassesMic()
+  @ObservationIgnored private var photoTimeout: Task<Void, Never>?
+  #if EXPERIMENTAL_PHOTO
+  @ObservationIgnored private var photoObserved = false
+  @ObservationIgnored private var photoState: PhotoState = .stopped
+  @ObservationIgnored private var pendingFullQualityPhoto = false
+  #endif
 
   init(wearables: WearablesInterface = Wearables.shared, server: MJPEGServer = MJPEGServer()) {
     self.wearables = wearables
@@ -112,6 +146,7 @@ final class WearablesManager {
 
     server.onViewerCountChange = { [weak self] count in self?.viewerCount = count }
     server.onError = { [weak self] message in self?.errorMessage = message }
+    server.onCaptureRequest = { [weak self] in self?.takePhoto() }
     server.start()
 
     tasks.append(Task { [weak self] in
@@ -197,6 +232,96 @@ final class WearablesManager {
     updateAudioCapture()
     session?.stop()
   }
+
+  // MARK: - Photos
+
+  /// Asks the glasses camera for a photo. It arrives through the stream's photo publisher.
+  func takePhoto() {
+    guard isStreaming, let camera, !isTakingPhoto else { return }
+    isTakingPhoto = true
+    photoTimeout?.cancel()
+    photoTimeout = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(20))
+      guard !Task.isCancelled else { return }
+      self?.photoFailed("The photo didn't arrive from the glasses. Try again.")
+    }
+    #if EXPERIMENTAL_PHOTO
+    if photoSource == .fullQuality {
+      takeFullQualityPhoto(with: camera)
+      return
+    }
+    #endif
+    if !camera.stream.capturePhoto(format: .jpeg) {
+      photoFailed("The glasses couldn't take a photo right now. Try again.")
+    }
+  }
+
+  private func didCapturePhoto(_ data: Data) {
+    guard isTakingPhoto else { return }
+    photoTimeout?.cancel()
+    isTakingPhoto = false
+    photoProgress = nil
+    // Keep everything as JPEG so the gallery, sharing and /photo.jpg agree.
+    let isJPEG = data.starts(with: [0xFF, 0xD8])
+    guard let jpeg = isJPEG ? data : UIImage(data: data)?.jpegData(compressionQuality: 0.92) else {
+      errorMessage = "The glasses sent a photo GlassCast couldn't read."
+      return
+    }
+    do {
+      try photos.add(jpeg)
+      server.publishPhoto(jpeg)
+      UINotificationFeedbackGenerator().notificationOccurred(.success)
+    } catch {
+      errorMessage = "Couldn't save the photo: \(error.localizedDescription)"
+    }
+  }
+
+  private func photoFailed(_ message: String) {
+    guard isTakingPhoto else { return }
+    photoTimeout?.cancel()
+    isTakingPhoto = false
+    photoProgress = nil
+    errorMessage = message
+  }
+
+  #if EXPERIMENTAL_PHOTO
+  private func takeFullQualityPhoto(with camera: MWDATCamera.Camera) {
+    if !photoObserved {
+      photoObserved = true
+      observe(camera.photo)
+    }
+    if photoState == .started {
+      camera.photo.capturePhoto(resolution: .full, quality: .high)
+    } else {
+      // Starting the photo capability takes a moment; capture once it reports `.started`.
+      pendingFullQualityPhoto = true
+      camera.photo.start()
+    }
+  }
+
+  private func observe(_ photo: MWDATCamera.Photo) {
+    photo.statePublisher.listen { [weak self] state in
+      Task { @MainActor in self?.handlePhotoState(state) }
+    }.store(in: streamTokens)
+    photo.photoDataPublisher.listen { [weak self] capture in
+      Task { @MainActor in self?.didCapturePhoto(capture.imageData) }
+    }.store(in: streamTokens)
+    photo.transferProgressPublisher.listen { [weak self] progress in
+      Task { @MainActor in self?.photoProgress = progress.fraction }
+    }.store(in: streamTokens)
+    photo.errorPublisher.listen { [weak self] error in
+      Task { @MainActor in self?.photoFailed(error.localizedDescription) }
+    }.store(in: streamTokens)
+  }
+
+  private func handlePhotoState(_ state: PhotoState) {
+    photoState = state
+    if state == .started, pendingFullQualityPhoto {
+      pendingFullQualityPhoto = false
+      camera?.photo.capturePhoto(resolution: .full, quality: .high)
+    }
+  }
+  #endif
 
   // MARK: - Audio
 
@@ -392,8 +517,18 @@ final class WearablesManager {
       Task { @MainActor in self?.didReceive(image) }
     }.store(in: streamTokens)
 
+    stream.photoDataPublisher.listen { [weak self] photo in
+      Task { @MainActor in self?.didCapturePhoto(photo.data) }
+    }.store(in: streamTokens)
+
     stream.errorPublisher.listen { [weak self] error in
-      Task { @MainActor in self?.errorMessage = error.localizedDescription }
+      Task { @MainActor in
+        if error == .photoCaptureFailed {
+          self?.photoFailed(error.localizedDescription)
+        } else {
+          self?.errorMessage = error.localizedDescription
+        }
+      }
     }.store(in: streamTokens)
 
     #if EXPERIMENTAL_AUDIO
@@ -415,6 +550,12 @@ final class WearablesManager {
     streamTokens.clear()
     camera?.stop()
     camera = nil
+    photoFailed("Live view stopped before the photo arrived.")
+    #if EXPERIMENTAL_PHOTO
+    photoObserved = false
+    photoState = .stopped
+    pendingFullQualityPhoto = false
+    #endif
     frame = nil
     fps = 0
     frameTimes.removeAll()

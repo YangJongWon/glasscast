@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
@@ -58,6 +61,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -163,6 +171,7 @@ private fun LiveScreen(
 ) {
   val viewerCount by viewModel.viewerCount.collectAsStateWithLifecycle()
   var showShare by remember { mutableStateOf(false) }
+  var showGallery by remember { mutableStateOf(false) }
 
   Box(Modifier.fillMaxSize()) {
     Preview(viewModel, state)
@@ -170,6 +179,8 @@ private fun LiveScreen(
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
       StatusBar(state, viewerCount, onDisconnect)
       Spacer(Modifier.weight(1f))
+      ShutterRow(viewModel, state, onOpenGallery = { showGallery = true })
+      Spacer(Modifier.height(12.dp))
       Controls(
           state = state,
           onToggle = { if (state.wantsStream) viewModel.stopStreaming() else viewModel.startStreaming() },
@@ -182,6 +193,63 @@ private fun LiveScreen(
 
   if (showShare) {
     ModalBottomSheet(onDismissRequest = { showShare = false }) { ShareSheet(viewerCount) }
+  }
+  if (showGallery) {
+    GalleryScreen(viewModel.photos, onClose = { showGallery = false })
+  }
+}
+
+/** Latest photo on the left, the glasses shutter in the middle. */
+@Composable
+private fun ShutterRow(viewModel: GlassCastViewModel, state: UiState, onOpenGallery: () -> Unit) {
+  val thumbnail by viewModel.photos.latestThumbnail.collectAsStateWithLifecycle()
+  val scope = rememberCoroutineScope()
+  val haptics = LocalHapticFeedback.current
+  val canShoot = state.isStreaming && !state.takingPhoto
+
+  Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.weight(1f)) {
+      IconButton(
+          onClick = onOpenGallery,
+          modifier =
+              Modifier.size(52.dp)
+                  .clip(RoundedCornerShape(10.dp))
+                  .background(Color.White.copy(alpha = 0.12f)),
+      ) {
+        val image = thumbnail
+        if (image != null) {
+          Image(
+              bitmap = image.asImageBitmap(),
+              contentDescription = "Photos",
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.fillMaxSize(),
+          )
+        } else {
+          Icon(Icons.Filled.PhotoLibrary, contentDescription = "Photos", tint = Color.White)
+        }
+      }
+    }
+    Box(
+        modifier =
+            Modifier.size(72.dp)
+                .border(4.dp, Color.White.copy(alpha = if (state.isStreaming) 1f else 0.4f), CircleShape)
+                .padding(8.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = if (canShoot) 1f else 0.4f))
+                .then(
+                    if (canShoot) {
+                      Modifier.clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch { viewModel.takePhoto() }
+                      }
+                    } else {
+                      Modifier
+                    }),
+        contentAlignment = Alignment.Center,
+    ) {
+      if (state.takingPhoto) CircularProgressIndicator(color = Color.Black, strokeWidth = 3.dp)
+    }
+    Spacer(Modifier.weight(1f))
   }
 }
 

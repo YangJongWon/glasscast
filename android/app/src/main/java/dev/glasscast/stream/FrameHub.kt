@@ -40,4 +40,17 @@ object FrameHub {
   fun updateStatus(transform: (StreamStatus) -> StreamStatus) {
     _status.update(transform)
   }
+
+  /** Newest photo taken with the glasses, served at `/photo.jpg`. */
+  @Volatile var latestPhoto: ByteArray? = null
+    private set
+  /** Increments with every photo so viewers can tell when a new one arrived. */
+  @Volatile var photoSeq = 0
+    private set
+
+  @Synchronized
+  fun publishPhoto(jpeg: ByteArray) {
+    latestPhoto = jpeg
+    photoSeq += 1
+  }
 }

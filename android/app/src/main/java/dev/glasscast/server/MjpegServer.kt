@@ -37,7 +37,9 @@ import org.json.JSONObject
  * - `GET /stream`       `multipart/x-mixed-replace` JPEG stream
  * - `GET /snapshot.jpg` the newest frame
  * - `GET /audio`        glasses microphone as an endless 16 kHz mono WAV (503 while off)
- * - `GET /status`       JSON `{state, fps, width, height, clients, audio}`
+ * - `GET /photo.jpg`    the newest photo taken with the glasses (404 before the first)
+ * - `POST /capture`     asks the glasses to take a photo (202; 409 unless streaming)
+ * - `GET /status`       JSON `{state, fps, width, height, clients, audio, photo}`
  */
 class MjpegServer(
     private val context: Context,
@@ -58,6 +60,9 @@ class MjpegServer(
   private val _viewerCount = MutableStateFlow(0)
   /** Number of open `/stream` connections. */
   val viewerCount: StateFlow<Int> = _viewerCount.asStateFlow()
+
+  /** Called for `POST /capture`, on a server thread. */
+  @Volatile var onCaptureRequest: (() -> Unit)? = null
 
   private val streamClients = AtomicInteger(0)
   private val audioClients = AtomicInteger(0)
@@ -110,6 +115,10 @@ class MjpegServer(
         val requestLine = readRequestHead(input) ?: return
         val parts = requestLine.split(" ")
         val out = s.getOutputStream()
+        if (parts.size >= 2 && parts[0] == "POST" && parts[1].substringBefore('?') == "/capture") {
+          capture(out)
+          return
+        }
         if (parts.size < 2 || (parts[0] != "GET" && parts[0] != "HEAD")) {
           respond(out, "405 Method Not Allowed", "text/plain", "Method not allowed\n".toByteArray())
           return
@@ -123,6 +132,14 @@ class MjpegServer(
               respond(out, "200 OK", "image/jpeg", frame.jpeg)
             } else {
               respond(out, "503 Service Unavailable", "text/plain", "No frame yet\n".toByteArray())
+            }
+          }
+          "/photo.jpg" -> {
+            val photo = FrameHub.latestPhoto
+            if (photo != null) {
+              respond(out, "200 OK", "image/jpeg", photo)
+            } else {
+              respond(out, "404 Not Found", "text/plain", "No photo yet\n".toByteArray())
             }
           }
           "/stream" -> stream(s, input, out)
@@ -145,6 +162,16 @@ class MjpegServer(
       head.append(byte.toChar())
     }
     return head.toString().substringBefore("\r\n")
+  }
+
+  /** The request body (if any) is ignored; the photo arrives later at `/photo.jpg`. */
+  private fun capture(out: OutputStream) {
+    if (FrameHub.status.value.state != "streaming") {
+      respond(out, "409 Conflict", "text/plain", "Live view isn't running\n".toByteArray())
+      return
+    }
+    onCaptureRequest?.invoke()
+    respond(out, "202 Accepted", "text/plain", "Taking a photo\n".toByteArray())
   }
 
   private fun respond(out: OutputStream, status: String, type: String, body: ByteArray) {
@@ -294,6 +321,7 @@ class MjpegServer(
         .put("height", status.height)
         .put("clients", streamClients.get())
         .put("audio", AudioHub.available.value)
+        .put("photo", FrameHub.photoSeq)
         .toString()
         .toByteArray()
   }

@@ -64,6 +64,13 @@
 	<string>Needed to connect to your Meta AI glasses.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Only when you turn on sound: streams your voice from the glasses' microphone to computers on your Wi-Fi. Nothing is recorded.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Saves photos you took with your glasses to your library when you choose Save Image.</string>
+	<!-- Photos live in Documents/Photos; this shows them in the Files app. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Lets GlassCast connect to your glasses and share their live view with computers on your Wi-Fi.</string>
 	<key>NSBonjourServices</key>

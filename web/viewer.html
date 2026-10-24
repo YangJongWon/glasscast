@@ -110,6 +110,26 @@
   button[hidden] { display: none; }
   .hint { color: var(--muted); font-size: 12px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+  #photoToast {
+    position: fixed;
+    right: 16px;
+    bottom: 76px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--fg);
+    text-decoration: none;
+  }
+  #photoToast[hidden] { display: none; }
+  #photoToast img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; display: block; }
+  body.clean #photoToast { display: none; }
 </style>
 </head>
 <body>
@@ -132,11 +152,17 @@
 <div id="bottom" class="bar">
   <span class="hint">OBS / VLC: <code id="streamUrl"></code> · sound: <code id="audioUrl"></code></span>
   <span>
+    <button id="capture" type="button" hidden>Take photo</button>
     <button id="sound" type="button" hidden>Sound off</button>
     <a class="button" id="snapshot" href="snapshot.jpg" download="glasscast.jpg">Snapshot</a>
     <button id="fullscreen" type="button">Fullscreen</button>
   </span>
 </div>
+
+<a id="photoToast" href="photo.jpg" target="_blank" hidden>
+  <img id="photoThumb" alt="Newest photo from the glasses">
+  <span>New photo<br><span class="hint">Click to open</span></span>
+</a>
 
 <script>
 (() => {
@@ -182,6 +208,7 @@
       $('res').textContent = s.width ? s.width + '×' + s.height : '–';
       $('clients').textContent = s.clients + (s.clients === 1 ? ' viewer' : ' viewers');
       audio.setAvailable(!!s.audio);
+      photos.update(s);
       // Reconnect the image as soon as the phone starts sending again.
       if (s.state === 'streaming' && !placeholder.hidden) connect();
     } catch (e) {
@@ -288,6 +315,52 @@
         if (available) play();
         else stop();
         render();
+      },
+    };
+  })();
+
+  // Photos: "Take photo" asks the phone to have the glasses take a full photo (POST
+  // /capture). When /status reports a new photo number, show it from /photo.jpg.
+  const photos = (() => {
+    const button = $('capture');
+    const toast = $('photoToast');
+    let seq = null;
+    let hideTimer = null;
+    let resetTimer = null;
+
+    function ready() {
+      clearTimeout(resetTimer);
+      button.disabled = false;
+      button.textContent = 'Take photo';
+    }
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.textContent = 'Taking photo…';
+      // The phone gives up after 20 s; never leave the button stuck.
+      resetTimer = setTimeout(ready, 25000);
+      try {
+        const res = await fetch('capture', { method: 'POST' });
+        if (!res.ok) throw new Error(await res.text());
+      } catch (e) {
+        ready();
+      }
+    });
+
+    return {
+      update(s) {
+        button.hidden = s.state !== 'streaming';
+        const latest = s.photo || 0;
+        if (seq !== null && latest > seq) {
+          const url = 'photo.jpg?n=' + latest;
+          $('photoThumb').src = url;
+          toast.href = url;
+          toast.hidden = false;
+          clearTimeout(hideTimer);
+          hideTimer = setTimeout(() => { toast.hidden = true; }, 8000);
+          ready();
+        }
+        seq = latest;
       },
     };
   })();

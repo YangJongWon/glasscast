@@ -11,6 +11,7 @@ import com.meta.wearable.dat.camera.Camera
 import com.meta.wearable.dat.camera.Stream
 import com.meta.wearable.dat.camera.addCamera
 import com.meta.wearable.dat.camera.types.StreamConfiguration
+import com.meta.wearable.dat.camera.types.PhotoData
 import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.camera.types.VideoFrame
 import com.meta.wearable.dat.camera.types.VideoQuality
@@ -21,6 +22,7 @@ import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
+import dev.glasscast.photos.PhotoStore
 import dev.glasscast.server.StreamService
 import dev.glasscast.stream.AudioHub
 import dev.glasscast.stream.FrameHub
@@ -28,6 +30,7 @@ import dev.glasscast.stream.GlassesMic
 import dev.glasscast.stream.GlassesMicException
 import dev.glasscast.stream.JpegFrame
 import dev.glasscast.stream.YuvJpeg
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +38,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class Quality(val label: String, val videoQuality: VideoQuality) {
   LOW("360p", VideoQuality.LOW),
@@ -54,6 +59,8 @@ data class UiState(
     /** Off by default and on every launch; the mic only runs while this is on and live view is wanted. */
     val audioEnabled: Boolean = false,
     val capturingAudio: Boolean = false,
+    /** A photo was requested and hasn't arrived yet. */
+    val takingPhoto: Boolean = false,
     val fps: Int = 0,
     val showCameraPermissionPrompt: Boolean = false,
     val error: String? = null,
@@ -95,7 +102,11 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   private val _preview = MutableStateFlow<Bitmap?>(null)
   val preview: StateFlow<Bitmap?> = _preview.asStateFlow()
 
-  val viewerCount: StateFlow<Int> = (application as GlassCastApplication).server.viewerCount
+  private val server = (application as GlassCastApplication).server
+  val viewerCount: StateFlow<Int> = server.viewerCount
+
+  /** Photos taken with the glasses (Pictures/GlassCast). */
+  val photos = PhotoStore(application)
 
   private val deviceSelector by lazy { AutoDeviceSelector() }
   private val frameDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -106,6 +117,12 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   private var restartAfterStop = false
   private val frameTimes = ArrayDeque<Long>()
   private val mic = GlassesMic(application)
+
+  init {
+    viewModelScope.launch { photos.reload() }
+    // Desktop viewers' "Take photo" button.
+    server.onCaptureRequest = { viewModelScope.launch { takePhoto() } }
+  }
 
   /** Call once Android permissions are granted and `Wearables.initialize` has run. */
   fun onSdkReady() {
@@ -163,6 +180,47 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     _state.update { it.copy(wantsStream = false) }
     updateAudioCapture()
     session?.stop()
+  }
+
+  // MARK: - Photos
+
+  /** Asks the glasses camera for a full photo; returns once it is saved or has failed. */
+  suspend fun takePhoto() {
+    val current = camera ?: return
+    if (!_state.value.isStreaming || _state.value.takingPhoto) return
+    _state.update { it.copy(takingPhoto = true) }
+    try {
+      val result =
+          withTimeoutOrNull(20_000) { current.stream.capturePhoto() }
+              ?: return fail("The photo didn't arrive from the glasses. Try again.")
+      val photo = result.getOrNull() ?: return fail(result.errorOrNull()?.description ?: "Couldn't take a photo.")
+      val jpeg =
+          withContext(Dispatchers.Default) { toJpeg(photo) }
+              ?: return fail("The glasses sent a photo GlassCast couldn't read.")
+      photos.add(jpeg)
+      FrameHub.publishPhoto(jpeg)
+    } catch (e: Exception) {
+      fail("Couldn't save the photo: ${e.message}")
+    } finally {
+      _state.update { it.copy(takingPhoto = false) }
+    }
+  }
+
+  /** Keeps everything as JPEG so the gallery, sharing and `/photo.jpg` agree. */
+  private fun toJpeg(photo: PhotoData): ByteArray? {
+    val bitmap =
+        when (photo) {
+          is PhotoData.Bitmap -> photo.bitmap
+          is PhotoData.HEIC -> {
+            val buffer = photo.data.duplicate()
+            val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+          }
+        }
+    return ByteArrayOutputStream().use { out ->
+      bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+      out.toByteArray()
+    }
   }
 
   // MARK: - Audio
@@ -395,6 +453,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
       }
 
   override fun onCleared() {
+    server.onCaptureRequest = null
     AudioHub.setAvailable(false)
     mic.stop()
     session?.stop()

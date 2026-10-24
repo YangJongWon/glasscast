@@ -23,7 +23,7 @@ jobs:
         run: |
           python3 tools/mock_server.py frames --port 8080 &
           sleep 2
-          python3 tools/check_stream.py localhost:8080
+          python3 tools/check_stream.py localhost:8080 --capture
 
   android:
     name: Android
