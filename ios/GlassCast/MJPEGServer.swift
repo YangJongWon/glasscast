@@ -8,7 +8,8 @@ import UIKit
 /// - `GET /`             → the bundled `viewer.html`
 /// - `GET /stream`       → `multipart/x-mixed-replace` JPEG stream
 /// - `GET /snapshot.jpg` → the newest frame
-/// - `GET /status`       → JSON `{state, fps, width, height, clients}`
+/// - `GET /audio`        → glasses microphone as an endless 16 kHz mono WAV (503 while off)
+/// - `GET /status`       → JSON `{state, fps, width, height, clients, audio}`
 ///
 /// All mutable state is confined to `queue`. Only the newest frame is kept, and each
 /// stream client is sent the newest frame whenever its previous send finishes, so a
@@ -16,10 +17,13 @@ import UIKit
 final class MJPEGServer: @unchecked Sendable {
   static let port: UInt16 = 8080
   static let maxStreamClients = 4
+  static let maxAudioClients = 4
   static let bonjourType = "_glasscast._tcp"
   private static let boundary = "glasscast"
   private static let jpegQuality: CGFloat = 0.7
   private static let maxRequestBytes = 16 * 1024
+  /// About one second of 16 kHz Int16 audio. A viewer further behind loses the oldest samples.
+  private static let maxAudioBacklog = 32_000
 
   struct Status {
     var state = "stopped"
@@ -36,6 +40,8 @@ final class MJPEGServer: @unchecked Sendable {
   private let queue = DispatchQueue(label: "dev.glasscast.mjpeg-server")
   private var listener: NWListener?
   private var streamClients: [ObjectIdentifier: StreamClient] = [:]
+  private var audioClients: [ObjectIdentifier: AudioClient] = [:]
+  private var audioAvailable = false
   private var status = Status()
 
   private var latestImage: UIImage?
@@ -110,6 +116,34 @@ final class MJPEGServer: @unchecked Sendable {
     queue.async { [self] in change(&status) }
   }
 
+  /// Opens or closes `/audio`. Closing hangs up every audio viewer.
+  func setAudioAvailable(_ available: Bool) {
+    queue.async { [self] in
+      audioAvailable = available
+      guard !available else { return }
+      for client in audioClients.values {
+        client.connection.cancel()
+      }
+      audioClients.removeAll()
+    }
+  }
+
+  /// Hands the server 16 kHz mono Int16 PCM. Called from the audio capture thread.
+  func publishAudio(_ pcm: Data) {
+    queue.async { [self] in
+      guard audioAvailable else { return }
+      for client in audioClients.values {
+        client.pending.append(pcm)
+        if client.pending.count > Self.maxAudioBacklog {
+          // Keep sample alignment when dropping.
+          let excess = (client.pending.count - Self.maxAudioBacklog + 1) & ~1
+          client.pending.removeFirst(excess)
+        }
+        if !client.isSending { flushAudio(to: client) }
+      }
+    }
+  }
+
   // MARK: - Connections
 
   private func accept(_ connection: NWConnection) {
@@ -156,6 +190,8 @@ final class MJPEGServer: @unchecked Sendable {
       }
     case "/stream":
       startStream(on: connection)
+    case "/audio":
+      startAudio(on: connection)
     default:
       respond(on: connection, status: "404 Not Found", type: "text/plain", body: Data("Not found\n".utf8))
     }
@@ -201,7 +237,7 @@ final class MJPEGServer: @unchecked Sendable {
       }
     }
     // The viewer never sends anything after the request; a completed read means it hung up.
-    watchForHangUp(client)
+    watchForHangUp(connection)
 
     client.isSending = true
     connection.send(content: header, completion: .contentProcessed { [weak self, weak client] error in
@@ -215,13 +251,13 @@ final class MJPEGServer: @unchecked Sendable {
     })
   }
 
-  private func watchForHangUp(_ client: StreamClient) {
-    client.connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self, weak client] _, _, isComplete, error in
-      guard let self, let client else { return }
+  private func watchForHangUp(_ connection: NWConnection) {
+    connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] _, _, isComplete, error in
+      guard let self else { return }
       if isComplete || error != nil {
-        client.connection.cancel()
-      } else {
-        watchForHangUp(client)
+        connection.cancel()
+      } else if connection.state == .ready {
+        watchForHangUp(connection)
       }
     }
   }
@@ -250,6 +286,88 @@ final class MJPEGServer: @unchecked Sendable {
     })
   }
 
+  // MARK: - Audio stream
+
+  private func startAudio(on connection: NWConnection) {
+    guard audioAvailable else {
+      respond(on: connection, status: "503 Service Unavailable", type: "text/plain", body: Data("Audio is off\n".utf8))
+      return
+    }
+    guard audioClients.count < Self.maxAudioClients else {
+      respond(on: connection, status: "503 Service Unavailable", type: "text/plain", body: Data("Too many listeners\n".utf8))
+      return
+    }
+    var header = Data(
+      ("HTTP/1.1 200 OK\r\n"
+        + "Content-Type: audio/wav\r\n"
+        + "Cache-Control: no-store\r\n"
+        + "Access-Control-Allow-Origin: *\r\n"
+        + "Connection: close\r\n\r\n").utf8)
+    header.append(Self.wavHeader(sampleRate: Int(PCM16Converter.sampleRate)))
+
+    let client = AudioClient(connection: connection)
+    audioClients[ObjectIdentifier(client)] = client
+    connection.stateUpdateHandler = { [weak self, weak client] state in
+      guard let self, let client else { return }
+      switch state {
+      case .failed, .cancelled:
+        audioClients.removeValue(forKey: ObjectIdentifier(client))
+      default:
+        break
+      }
+    }
+    watchForHangUp(client.connection)
+
+    client.isSending = true
+    connection.send(content: header, completion: .contentProcessed { [weak self, weak client] error in
+      guard let self, let client else { return }
+      client.isSending = false
+      if error != nil {
+        connection.cancel()
+      } else {
+        flushAudio(to: client)
+      }
+    })
+  }
+
+  private func flushAudio(to client: AudioClient) {
+    guard !client.pending.isEmpty else { return }
+    let chunk = client.pending
+    client.pending = Data()
+    client.isSending = true
+    client.connection.send(content: chunk, completion: .contentProcessed { [weak self, weak client] error in
+      guard let self, let client else { return }
+      client.isSending = false
+      if error != nil {
+        client.connection.cancel()
+      } else {
+        flushAudio(to: client)
+      }
+    })
+  }
+
+  /// WAV header for an endless mono 16-bit stream. The size fields are left at their
+  /// maximum, which browsers, VLC and OBS (ffmpeg) treat as "read until the connection ends".
+  private static func wavHeader(sampleRate: Int) -> Data {
+    var data = Data()
+    func append<T: FixedWidthInteger>(_ value: T) {
+      withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+    }
+    data.append(Data("RIFF".utf8))
+    append(UInt32.max)
+    data.append(Data("WAVEfmt ".utf8))
+    append(UInt32(16))  // fmt chunk size
+    append(UInt16(1))  // PCM
+    append(UInt16(1))  // mono
+    append(UInt32(sampleRate))
+    append(UInt32(sampleRate * 2))  // byte rate
+    append(UInt16(2))  // block align
+    append(UInt16(16))  // bits per sample
+    data.append(Data("data".utf8))
+    append(UInt32.max)
+    return data
+  }
+
   private func remove(_ client: StreamClient) {
     guard streamClients.removeValue(forKey: ObjectIdentifier(client)) != nil else { return }
     viewerCountChanged()
@@ -275,6 +393,7 @@ final class MJPEGServer: @unchecked Sendable {
       "width": status.width,
       "height": status.height,
       "clients": streamClients.count,
+      "audio": audioAvailable,
     ]
     return (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
   }
@@ -286,6 +405,10 @@ final class MJPEGServer: @unchecked Sendable {
       client.connection.cancel()
     }
     streamClients.removeAll()
+    for client in audioClients.values {
+      client.connection.cancel()
+    }
+    audioClients.removeAll()
     viewerCountChanged()
   }
 
@@ -304,6 +427,17 @@ private final class StreamClient {
   let connection: NWConnection
   var isSending = false
   var sentSeq = -1
+
+  init(connection: NWConnection) {
+    self.connection = connection
+  }
+}
+
+/// One open `/audio` connection. Only touched on the server queue.
+private final class AudioClient {
+  let connection: NWConnection
+  var isSending = false
+  var pending = Data()
 
   init(connection: NWConnection) {
     self.connection = connection

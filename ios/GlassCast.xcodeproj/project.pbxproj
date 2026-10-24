@@ -16,12 +16,16 @@
 		CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB70259B8CB027AFE81EAB0 /* ContentView.swift */; };
 		F0DF341FC4F7290B5F3D24FD /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 70EC68423C7043B09C39EF0F /* MWDATCore */; };
 		F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */; };
+		FD2B2F50335239E9ABAD24F7 /* PCM16Converter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8439F529F469F30A813CD680 /* PCM16Converter.swift */; };
+		FDBA4BDFE88F5996FBA531BD /* GlassesMic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD56346CA459CBB9329DE98 /* GlassesMic.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		2658E48CC52E1EB3AE1C1194 /* LiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
 		371774609D43F1958B355F48 /* viewer.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = viewer.html; sourceTree = "<group>"; };
+		5CD56346CA459CBB9329DE98 /* GlassesMic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesMic.swift; sourceTree = "<group>"; };
 		6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GlassCast.xcconfig; sourceTree = "<group>"; };
+		8439F529F469F30A813CD680 /* PCM16Converter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCM16Converter.swift; sourceTree = "<group>"; };
 		866D4D1889C14D4AD38B583A /* MJPEGServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MJPEGServer.swift; sourceTree = "<group>"; };
 		8BB70259B8CB027AFE81EAB0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AD521959CF1D0C053C768AF4 /* GlassCast.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GlassCast.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -29,6 +33,7 @@
 		B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WearablesManager.swift; sourceTree = "<group>"; };
 		BA4CCCBA1D6920DABC6EE45C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCastApp.swift; sourceTree = "<group>"; };
+		F3EA66767DD0430B70AE5C14 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,10 +79,12 @@
 			children = (
 				8BB70259B8CB027AFE81EAB0 /* ContentView.swift */,
 				BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */,
+				5CD56346CA459CBB9329DE98 /* GlassesMic.swift */,
 				BA4CCCBA1D6920DABC6EE45C /* Info.plist */,
 				2658E48CC52E1EB3AE1C1194 /* LiveView.swift */,
 				866D4D1889C14D4AD38B583A /* MJPEGServer.swift */,
 				B220E5BE58233BBDE7E626FC /* NetworkInfo.swift */,
+				8439F529F469F30A813CD680 /* PCM16Converter.swift */,
 				B6E3FFCEF11AB9C5D22174DE /* WearablesManager.swift */,
 				C82EC8EA0C4E769F9A450481 /* Config */,
 			);
@@ -88,6 +95,7 @@
 			isa = PBXGroup;
 			children = (
 				6157B6FA30A686C051C9E167 /* GlassCast.xcconfig */,
+				F3EA66767DD0430B70AE5C14 /* Secrets.xcconfig */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -180,9 +188,11 @@
 			files = (
 				CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */,
 				F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */,
+				FDBA4BDFE88F5996FBA531BD /* GlassesMic.swift in Sources */,
 				7DD2FA44FC78AB45FFE5FF97 /* LiveView.swift in Sources */,
 				18CE063B8A8DC9CC5A23BC55 /* MJPEGServer.swift in Sources */,
 				C9D55693FB8B17A91A27EE8C /* NetworkInfo.swift in Sources */,
+				FD2B2F50335239E9ABAD24F7 /* PCM16Converter.swift in Sources */,
 				96DA2D6A0B843A66104C0979 /* WearablesManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -290,6 +300,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) EXPERIMENTAL_AUDIO";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};

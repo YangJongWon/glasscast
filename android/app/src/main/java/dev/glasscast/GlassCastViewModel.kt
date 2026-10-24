@@ -22,7 +22,10 @@ import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
 import dev.glasscast.server.StreamService
+import dev.glasscast.stream.AudioHub
 import dev.glasscast.stream.FrameHub
+import dev.glasscast.stream.GlassesMic
+import dev.glasscast.stream.GlassesMicException
 import dev.glasscast.stream.JpegFrame
 import dev.glasscast.stream.YuvJpeg
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +51,9 @@ data class UiState(
     /** Streaming was requested and hasn't been stopped (session or stream may still be starting). */
     val wantsStream: Boolean = false,
     val quality: Quality = Quality.MEDIUM,
+    /** Off by default and on every launch; the mic only runs while this is on and live view is wanted. */
+    val audioEnabled: Boolean = false,
+    val capturingAudio: Boolean = false,
     val fps: Int = 0,
     val showCameraPermissionPrompt: Boolean = false,
     val error: String? = null,
@@ -75,6 +81,7 @@ data class UiState(
 /**
  * Owns the DAT SDK lifecycle: registration, the [DeviceSession], and the camera [Stream].
  * Every frame is encoded to JPEG once and shared by the on-screen preview and the MJPEG server.
+ * When the user turns sound on, the glasses' microphone goes to the server's `/audio` route.
  */
 class GlassCastViewModel(application: Application) : AndroidViewModel(application) {
   companion object {
@@ -98,6 +105,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   private var streamJobs = emptyList<Job>()
   private var restartAfterStop = false
   private val frameTimes = ArrayDeque<Long>()
+  private val mic = GlassesMic(application)
 
   /** Call once Android permissions are granted and `Wearables.initialize` has run. */
   fun onSdkReady() {
@@ -132,6 +140,8 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   /** Starts a device session if needed; the camera is added once the session reports STARTED. */
   fun startStreaming() {
     _state.update { it.copy(wantsStream = true) }
+    // Meta recommends setting up HFP before the camera stream starts.
+    updateAudioCapture()
     session?.let {
       if (_state.value.sessionState == DeviceSessionState.STARTED) beginStreamIfPermitted()
       return
@@ -151,7 +161,46 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   fun stopStreaming() {
     restartAfterStop = false
     _state.update { it.copy(wantsStream = false) }
+    updateAudioCapture()
     session?.stop()
+  }
+
+  // MARK: - Audio
+
+  /** Turning sound on requires RECORD_AUDIO; MainActivity asks for it first. */
+  fun setAudioEnabled(enabled: Boolean) {
+    if (enabled == _state.value.audioEnabled) return
+    _state.update { it.copy(audioEnabled = enabled) }
+    updateAudioCapture()
+  }
+
+  fun onMicrophonePermissionDenied() {
+    fail("Microphone access is off. Turn it on for GlassCast in Settings.")
+  }
+
+  /** Runs the microphone exactly while sound is on and live view is wanted. */
+  @Suppress("MissingPermission") // audioEnabled is only set after RECORD_AUDIO is granted.
+  private fun updateAudioCapture() {
+    val shouldCapture = _state.value.audioEnabled && _state.value.wantsStream
+    if (shouldCapture == mic.isRunning) return
+    if (shouldCapture) {
+      try {
+        mic.start(viewModelScope, AudioHub::publish)
+        AudioHub.setAvailable(true)
+      } catch (e: GlassesMicException) {
+        _state.update { it.copy(audioEnabled = false) }
+        fail(e.message ?: "Couldn't start the glasses microphone.")
+      }
+    } else {
+      AudioHub.setAvailable(false)
+      mic.stop()
+    }
+    _state.update { it.copy(capturingAudio = mic.isRunning) }
+    // Add or drop the service's microphone type so capture keeps working with the screen off.
+    // Skipped when stopping: the service is about to go away.
+    if (camera != null && _state.value.wantsStream) {
+      StreamService.start(getApplication(), microphone = mic.isRunning)
+    }
   }
 
   fun setQuality(quality: Quality) {
@@ -203,7 +252,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   private fun beginStream() {
     val current = session ?: return
     if (camera != null || !_state.value.wantsStream) return
-    StreamService.start(getApplication())
+    StreamService.start(getApplication(), microphone = mic.isRunning)
     current
         .addCamera(
             StreamConfiguration(
@@ -240,7 +289,17 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
                 }
               }
             },
-            viewModelScope.launch { session.errors.collect { error -> fail(error.description) } },
+            viewModelScope.launch {
+              session.errors.collect { error ->
+                fail(error.description)
+                // A session that fails before it starts may never report STOPPED. Drop it so
+                // the button resets and the next tap creates a fresh session.
+                if (_state.value.sessionState != DeviceSessionState.STARTED) {
+                  session.stop()
+                  cleanupSession()
+                }
+              }
+            },
         )
   }
 
@@ -319,6 +378,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     session = null
     // Stopped by the user, or the glasses dropped the session (taken off, out of range).
     _state.update { it.copy(wantsStream = false, sessionState = DeviceSessionState.STOPPED) }
+    updateAudioCapture()
   }
 
   private fun fail(message: String) {
@@ -335,6 +395,8 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
       }
 
   override fun onCleared() {
+    AudioHub.setAvailable(false)
+    mic.stop()
     session?.stop()
     StreamService.stop(getApplication())
     super.onCleared()

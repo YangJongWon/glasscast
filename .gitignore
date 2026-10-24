@@ -4,6 +4,7 @@
 # Secrets (never commit)
 ios/GlassCast/Config/Secrets.xcconfig
 android/local.properties
+.env
 
 # Xcode
 xcuserdata/

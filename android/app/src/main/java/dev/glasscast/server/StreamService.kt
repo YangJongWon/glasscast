@@ -17,15 +17,19 @@ import dev.glasscast.R
 
 /**
  * Foreground service that runs while the glasses are streaming, so the process, CPU and
- * Wi-Fi stay up with the screen off and desktop viewers keep receiving frames.
+ * Wi-Fi stay up with the screen off and desktop viewers keep receiving frames. While sound is
+ * on it also holds the microphone type, without which Android silences capture in the background.
  */
 class StreamService : Service() {
   companion object {
     private const val CHANNEL_ID = "live_view"
     private const val NOTIFICATION_ID = 1
+    private const val EXTRA_MICROPHONE = "microphone"
 
-    fun start(context: Context) {
-      context.startForegroundService(Intent(context, StreamService::class.java))
+    /** Starts the service, or updates its foreground type if it is already running. */
+    fun start(context: Context, microphone: Boolean) {
+      context.startForegroundService(
+          Intent(context, StreamService::class.java).putExtra(EXTRA_MICROPHONE, microphone))
     }
 
     fun stop(context: Context) {
@@ -39,11 +43,11 @@ class StreamService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    startForeground(
-        NOTIFICATION_ID,
-        buildNotification(),
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-    )
+    var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+    if (intent?.getBooleanExtra(EXTRA_MICROPHONE, false) == true) {
+      type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+    }
+    startForeground(NOTIFICATION_ID, buildNotification(), type)
     acquireLocks()
     return START_NOT_STICKY
   }

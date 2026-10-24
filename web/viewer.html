@@ -106,6 +106,8 @@
     text-decoration: none;
   }
   button:hover, a.button:hover { border-color: var(--accent); color: var(--accent); }
+  button.on { border-color: var(--live); color: var(--live); }
+  button[hidden] { display: none; }
   .hint { color: var(--muted); font-size: 12px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 </style>
@@ -128,8 +130,9 @@
 </div>
 
 <div id="bottom" class="bar">
-  <span class="hint">OBS / VLC: <code id="streamUrl"></code></span>
+  <span class="hint">OBS / VLC: <code id="streamUrl"></code> · sound: <code id="audioUrl"></code></span>
   <span>
+    <button id="sound" type="button" hidden>Sound off</button>
     <a class="button" id="snapshot" href="snapshot.jpg" download="glasscast.jpg">Snapshot</a>
     <button id="fullscreen" type="button">Fullscreen</button>
   </span>
@@ -145,6 +148,7 @@
   const $ = (id) => document.getElementById(id);
   const streamUrl = new URL('stream', location.href).href;
   $('streamUrl').textContent = streamUrl;
+  $('audioUrl').textContent = new URL('audio', location.href).href;
 
   // The <img> keeps a single multipart/x-mixed-replace connection open. If it
   // drops (phone locked, Wi-Fi blip) we reconnect with a cache-busting query.
@@ -177,6 +181,7 @@
       $('fps').textContent = (s.fps || 0).toFixed(1) + ' fps';
       $('res').textContent = s.width ? s.width + '×' + s.height : '–';
       $('clients').textContent = s.clients + (s.clients === 1 ? ' viewer' : ' viewers');
+      audio.setAvailable(!!s.audio);
       // Reconnect the image as soon as the phone starts sending again.
       if (s.state === 'streaming' && !placeholder.hidden) connect();
     } catch (e) {
@@ -184,6 +189,108 @@
       $('dot').className = 'dot';
     }
   }
+
+  // Sound: the phone serves the glasses microphone at /audio as an endless 16-bit mono
+  // WAV. We read it with fetch() and schedule it through Web Audio, which keeps latency
+  // low and lets us skip ahead when we fall behind. Browsers only start audio after a
+  // click, except OBS browser sources, where ?audio turns it on automatically.
+  const audio = (() => {
+    const button = $('sound');
+    const maxLead = 0.4; // seconds of buffered audio before we drop and catch up
+    let available = false;
+    let wanted = params.has('audio');
+    let ctx = null;
+    let controller = null;
+    let retryTimer = null;
+
+    function render() {
+      button.hidden = !available;
+      button.textContent = wanted ? 'Sound on' : 'Sound off';
+      button.classList.toggle('on', wanted);
+    }
+
+    async function play() {
+      if (controller || !available || !wanted) return;
+      controller = new AbortController();
+      try {
+        const res = await fetch('audio?t=' + Date.now(), { cache: 'no-store', signal: controller.signal });
+        if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+        const reader = res.body.getReader();
+        let header = new Uint8Array(0);
+        let rate = 0;
+        let carry = null; // odd byte left over between chunks
+        let next = 0;
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          let bytes = value;
+          if (!rate) {
+            header = concat(header, bytes);
+            if (header.length < 44) continue;
+            rate = new DataView(header.buffer).getUint32(24, true);
+            bytes = header.subarray(44);
+            ctx = ctx || new AudioContext();
+          }
+          if (carry) { bytes = concat(carry, bytes); carry = null; }
+          if (bytes.length % 2) { carry = bytes.slice(-1); bytes = bytes.subarray(0, bytes.length - 1); }
+          if (!bytes.length) continue;
+          const pcm = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
+          const buffer = ctx.createBuffer(1, pcm.length, rate);
+          const channel = buffer.getChannelData(0);
+          for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          const now = ctx.currentTime;
+          if (next < now || next - now > maxLead) next = now + 0.05;
+          source.start(next);
+          next += buffer.duration;
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      } finally {
+        controller = null;
+      }
+      // Dropped (phone locked, sound turned off on the phone): try again while still wanted.
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(play, 1000);
+    }
+
+    function stop() {
+      clearTimeout(retryTimer);
+      controller?.abort();
+      controller = null;
+    }
+
+    function concat(a, b) {
+      const out = new Uint8Array(a.length + b.length);
+      out.set(a);
+      out.set(b, a.length);
+      return out;
+    }
+
+    button.addEventListener('click', () => {
+      wanted = !wanted;
+      if (wanted) {
+        ctx = ctx || new AudioContext();
+        ctx.resume();
+        play();
+      } else {
+        stop();
+      }
+      render();
+    });
+
+    return {
+      setAvailable(value) {
+        if (value === available) return;
+        available = value;
+        if (available) play();
+        else stop();
+        render();
+      },
+    };
+  })();
 
   $('fullscreen').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();

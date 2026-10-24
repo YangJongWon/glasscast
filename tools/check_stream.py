@@ -5,7 +5,8 @@
 
 Fetches /, /status and /snapshot.jpg, reads ~3 s of /stream to measure the
 frame rate, then opens more than the allowed number of viewers to check the
-limit and that dropping one viewer leaves the others streaming.
+limit and that dropping one viewer leaves the others streaming. If /status
+reports audio on, it also reads ~2 s of /audio and checks its rate.
 Standard library only.
 """
 
@@ -74,6 +75,36 @@ class StreamReader:
         self.sock.close()
 
 
+def check_audio(host, port, available, check):
+    sock = socket.create_connection((host, port), timeout=5)
+    try:
+        sock.sendall(f"GET /audio HTTP/1.1\r\nHost: {host}\r\n\r\n".encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+        head, _, body = buf.partition(b"\r\n\r\n")
+        status_line = head.split(b"\r\n", 1)[0].decode()
+        if not available:
+            check("GET /audio is 503 while sound is off", "503" in status_line, status_line)
+            return
+        check("GET /audio is a WAV stream", "200" in status_line and b"audio/wav" in head.lower(), status_line)
+        while len(body) < 44:
+            body += sock.recv(65536)
+        rate = int.from_bytes(body[24:28], "little")
+        check("audio header is 16-bit mono WAV", body[:4] == b"RIFF" and body[8:12] == b"WAVE"
+              and body[22:24] == b"\x01\x00" and body[34:36] == b"\x10\x00", f"{rate} Hz")
+        received, start = len(body) - 44, time.monotonic()
+        while time.monotonic() - start < 2:
+            received += len(sock.recv(65536))
+        seconds = received / 2 / rate / (time.monotonic() - start)
+        check("audio arrives in real time", 0.7 < seconds < 1.6, f"{seconds:.2f} s of audio per second")
+    finally:
+        sock.close()
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -100,6 +131,8 @@ def main():
         check("GET /snapshot.jpg returns a JPEG", ctype == "image/jpeg" and body[:2] == b"\xff\xd8", f"{len(body)} bytes")
     except urllib.error.HTTPError as e:
         check("GET /snapshot.jpg returns a JPEG", False, f"HTTP {e.code} - is the glasses stream running?")
+
+    check_audio(host, port, info.get("audio", False), check)
 
     try:
         get(base, "/nope")

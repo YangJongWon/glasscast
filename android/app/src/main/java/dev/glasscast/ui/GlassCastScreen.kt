@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -74,6 +76,7 @@ fun GlassCastScreen(
     viewModel: GlassCastViewModel,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onToggleAudio: () -> Unit,
     onConfirmCameraPermission: () -> Unit,
 ) {
   val state by viewModel.state.collectAsStateWithLifecycle()
@@ -85,7 +88,7 @@ fun GlassCastScreen(
   MaterialTheme(colorScheme = darkColorScheme()) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
       if (state.isRegistered) {
-        LiveScreen(viewModel, state, onDisconnect)
+        LiveScreen(viewModel, state, onDisconnect, onToggleAudio)
       } else {
         ConnectScreen(state, onConnect)
       }
@@ -152,7 +155,12 @@ private fun ConnectScreen(state: UiState, onConnect: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LiveScreen(viewModel: GlassCastViewModel, state: UiState, onDisconnect: () -> Unit) {
+private fun LiveScreen(
+    viewModel: GlassCastViewModel,
+    state: UiState,
+    onDisconnect: () -> Unit,
+    onToggleAudio: () -> Unit,
+) {
   val viewerCount by viewModel.viewerCount.collectAsStateWithLifecycle()
   var showShare by remember { mutableStateOf(false) }
 
@@ -166,6 +174,7 @@ private fun LiveScreen(viewModel: GlassCastViewModel, state: UiState, onDisconne
           state = state,
           onToggle = { if (state.wantsStream) viewModel.stopStreaming() else viewModel.startStreaming() },
           onQuality = viewModel::setQuality,
+          onToggleAudio = onToggleAudio,
           onShare = { showShare = true },
       )
     }
@@ -218,6 +227,9 @@ private fun StatusBar(state: UiState, viewerCount: Int, onDisconnect: () -> Unit
     Text(state.statusText, color = Color.White, fontSize = 14.sp)
     if (state.isStreaming) Text("${state.fps} fps", color = Color.White, fontSize = 14.sp)
     Spacer(Modifier.weight(1f))
+    if (state.capturingAudio) {
+      Icon(Icons.Filled.Mic, contentDescription = "Glasses microphone on", tint = Color(0xFFDC2626))
+    }
     if (viewerCount > 0) {
       Icon(Icons.Filled.Computer, contentDescription = "Desktop viewers", tint = Color.White)
       Text("$viewerCount", color = Color.White, fontSize = 14.sp)
@@ -244,6 +256,7 @@ private fun Controls(
     state: UiState,
     onToggle: () -> Unit,
     onQuality: (Quality) -> Unit,
+    onToggleAudio: () -> Unit,
     onShare: () -> Unit,
 ) {
   Column(
@@ -275,6 +288,14 @@ private fun Controls(
         Icon(if (state.wantsStream) Icons.Filled.Stop else Icons.Filled.PlayArrow, null)
         Spacer(Modifier.width(8.dp))
         Text(if (state.wantsStream) "Stop" else "Start live view")
+      }
+      OutlinedButton(onClick = onToggleAudio, modifier = Modifier.height(52.dp)) {
+        Icon(
+            if (state.audioEnabled) Icons.Filled.Mic else Icons.Filled.MicOff,
+            contentDescription =
+                if (state.audioEnabled) "Turn off glasses microphone" else "Turn on glasses microphone",
+            tint = if (state.audioEnabled) Color(0xFFDC2626) else Color.White,
+        )
       }
       OutlinedButton(onClick = onShare, modifier = Modifier.height(52.dp)) {
         Icon(Icons.Filled.Computer, null)
@@ -308,7 +329,7 @@ private fun ShareSheet(viewerCount: Int) {
     )
     Text(url, fontFamily = FontFamily.Monospace, fontSize = 20.sp)
     Text(
-        "Open this address in a browser on the same Wi-Fi. For OBS or VLC use $url/stream",
+        "Open this address in a browser on the same Wi-Fi. For OBS or VLC use $url/stream, and $url/audio for sound.",
         fontSize = 13.sp,
         textAlign = TextAlign.Center,
     )

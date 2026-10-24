@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
+import dev.glasscast.stream.AudioHub
 import dev.glasscast.stream.FrameHub
 import java.io.BufferedInputStream
 import java.io.IOException
@@ -12,6 +13,8 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -32,7 +36,8 @@ import org.json.JSONObject
  * - `GET /`             the bundled `viewer.html`
  * - `GET /stream`       `multipart/x-mixed-replace` JPEG stream
  * - `GET /snapshot.jpg` the newest frame
- * - `GET /status`       JSON `{state, fps, width, height, clients}`
+ * - `GET /audio`        glasses microphone as an endless 16 kHz mono WAV (503 while off)
+ * - `GET /status`       JSON `{state, fps, width, height, clients, audio}`
  */
 class MjpegServer(
     private val context: Context,
@@ -42,6 +47,7 @@ class MjpegServer(
   companion object {
     const val PORT = 8080
     const val MAX_STREAM_CLIENTS = 4
+    const val MAX_AUDIO_CLIENTS = 4
     private const val BONJOUR_TYPE = "_glasscast._tcp"
     private const val BOUNDARY = "glasscast"
     private const val MAX_REQUEST_BYTES = 16 * 1024
@@ -54,6 +60,7 @@ class MjpegServer(
   val viewerCount: StateFlow<Int> = _viewerCount.asStateFlow()
 
   private val streamClients = AtomicInteger(0)
+  private val audioClients = AtomicInteger(0)
   @Volatile private var serverSocket: ServerSocket? = null
   private var acceptJob: Job? = null
   private var nsdListener: NsdManager.RegistrationListener? = null
@@ -119,6 +126,7 @@ class MjpegServer(
             }
           }
           "/stream" -> stream(s, input, out)
+          "/audio" -> audio(s, input, out)
           else -> respond(out, "404 Not Found", "text/plain", "Not found\n".toByteArray())
         }
       } catch (_: IOException) {
@@ -203,6 +211,78 @@ class MjpegServer(
     }
   }
 
+  // MARK: - Audio stream
+
+  private suspend fun audio(socket: Socket, input: InputStream, out: OutputStream) {
+    if (!AudioHub.available.value) {
+      respond(out, "503 Service Unavailable", "text/plain", "Audio is off\n".toByteArray())
+      return
+    }
+    if (audioClients.incrementAndGet() > MAX_AUDIO_CLIENTS) {
+      audioClients.decrementAndGet()
+      respond(out, "503 Service Unavailable", "text/plain", "Too many listeners\n".toByteArray())
+      return
+    }
+    try {
+      out.write(
+          ("HTTP/1.1 200 OK\r\n" +
+                  "Content-Type: audio/wav\r\n" +
+                  "Cache-Control: no-store\r\n" +
+                  "Access-Control-Allow-Origin: *\r\n" +
+                  "Connection: close\r\n\r\n")
+              .toByteArray())
+      out.write(wavHeader(AudioHub.SAMPLE_RATE))
+      out.flush()
+      socket.soTimeout = 0
+
+      coroutineScope {
+        val writer = launch {
+          AudioHub.chunks.collect { pcm ->
+            out.write(pcm)
+            out.flush()
+          }
+        }
+        // Hang up when sound is turned off on the phone.
+        val soundOff = launch {
+          AudioHub.available.first { !it }
+          writer.cancel()
+        }
+        launch(Dispatchers.IO) {
+          runCatching { while (input.read() >= 0) Unit }
+          writer.cancel()
+        }
+        writer.join()
+        soundOff.cancel()
+        socket.close()
+      }
+    } catch (_: IOException) {
+      // Listener disconnected.
+    } finally {
+      audioClients.decrementAndGet()
+    }
+  }
+
+  /**
+   * WAV header for an endless mono 16-bit stream. The size fields are left at their maximum,
+   * which browsers, VLC and OBS (ffmpeg) treat as "read until the connection ends".
+   */
+  private fun wavHeader(sampleRate: Int): ByteArray =
+      ByteBuffer.allocate(44)
+          .order(ByteOrder.LITTLE_ENDIAN)
+          .put("RIFF".toByteArray())
+          .putInt(-1)
+          .put("WAVEfmt ".toByteArray())
+          .putInt(16) // fmt chunk size
+          .putShort(1) // PCM
+          .putShort(1) // mono
+          .putInt(sampleRate)
+          .putInt(sampleRate * 2) // byte rate
+          .putShort(2) // block align
+          .putShort(16) // bits per sample
+          .put("data".toByteArray())
+          .putInt(-1)
+          .array()
+
   private fun statusJson(): ByteArray {
     val status = FrameHub.status.value
     return JSONObject()
@@ -213,6 +293,7 @@ class MjpegServer(
         .put("width", status.width)
         .put("height", status.height)
         .put("clients", streamClients.get())
+        .put("audio", AudioHub.available.value)
         .toString()
         .toByteArray()
   }

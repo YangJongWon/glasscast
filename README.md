@@ -58,6 +58,18 @@ Open `android/` in Android Studio and run the `app` configuration on a real phon
    - **OBS**: add a *Browser* source with `http://<phone-ip>:8080/?clean`, or a *Media Source* with "Local file" unchecked and input `http://<phone-ip>:8080/stream`.
    - **VLC**: *Open Network Stream* → `http://<phone-ip>:8080/stream`.
 
+### Sound
+
+Sound is off by default. Tap the microphone button in the app to stream your voice from the glasses' microphone. The app asks for microphone access the first time.
+
+- **Browser**: click **Sound off** in the viewer to turn it on. Browsers only play audio after a click.
+- **OBS**: a *Browser* source with `http://<phone-ip>:8080/?clean&audio` plays video and sound together. You can also add a second *Media Source* with input `http://<phone-ip>:8080/audio`.
+- **VLC**: open `http://<phone-ip>:8080/audio` as a separate stream.
+
+The glasses' microphones are reached over Bluetooth HFP, the hands-free calling profile, so sound is voice quality and tuned to the wearer's voice, not to the room. While sound is on, the glasses' speakers also drop to call quality.
+
+iOS Debug builds can also take sound from the camera stream itself (*⋯ → Sound source*), which stays in sync with the video. This uses an experimental DAT feature, and apps that use experimental features can't be published yet. The code is compiled only when `EXPERIMENTAL_AUDIO` is set, which `project.yml` does for Debug only, so Release builds and archives never include it.
+
 The phone keeps its screen on while streaming. On Android, a foreground service also keeps streaming when the screen is off.
 
 ## Protocol
@@ -68,15 +80,19 @@ Both apps (and `tools/mock_server.py`) serve the same HTTP API on port **8080**.
 |---|---|
 | `GET /` | the viewer page (`web/viewer.html`) |
 | `GET /stream` | `multipart/x-mixed-replace; boundary=glasscast`, one JPEG per part |
+| `GET /audio` | `audio/wav`, an endless 16 kHz mono 16-bit stream (`503` while sound is off) |
 | `GET /snapshot.jpg` | the newest frame (`503` before the first frame) |
-| `GET /status` | `{"state", "fps", "width", "height", "clients", "platform"}` |
+| `GET /status` | `{"state", "fps", "width", "height", "clients", "platform", "audio"}` |
 
 `state` is one of `streaming`, `paused`, `starting`, `waitingForDevice`, `stopped`. Up to 4 viewers can watch `/stream` at once; extra viewers get `503`. The server keeps only the newest frame, so a slow viewer skips frames instead of falling behind.
+
+`/audio` starts with a 44-byte WAV header whose size fields are `0xFFFFFFFF`, followed by raw little-endian PCM until the connection closes. The server buffers about one second per listener and drops the oldest audio beyond that. Up to 4 listeners are allowed. Turning sound off closes every `/audio` connection. Audio and video are separate connections, so they can drift slightly apart.
 
 ## Development tools
 
 ```sh
-# Desktop stand-in for the phone: loops a folder of JPEGs through the same API.
+# Desktop stand-in for the phone: loops a folder of JPEGs through the same API,
+# with a beep once a second on /audio.
 ffmpeg -i clip.mp4 -vf "fps=24,scale=504:896" frames/%04d.jpg
 python3 tools/mock_server.py frames/ --port 8080
 
@@ -86,7 +102,7 @@ python3 tools/check_stream.py 192.168.0.12:8080
 
 ## Limitations and notes
 
-- **No authentication.** Anyone on the same network can open the stream while it's running. Use it on networks you trust.
+- **No authentication.** Anyone on the same network can open the stream while it's running, including sound when it is on. Use it on networks you trust.
 - **Same network only.** Remote viewing over the internet (WebRTC) is planned but not built yet.
 - **iOS foreground only.** The SDK pauses decoded (`raw`) streams when the app is backgrounded, so keep GlassCast open.
 - **Bandwidth.** Video travels over Bluetooth Classic. The SDK may lower resolution, then frame rate (never below 15 fps), when the link is weak. Lower quality settings often look sharper.

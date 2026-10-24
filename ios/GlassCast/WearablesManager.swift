@@ -4,7 +4,8 @@ import Observation
 import UIKit
 
 /// Owns the DAT SDK lifecycle: registration, the `DeviceSession`, and the camera
-/// `Stream`. Every frame goes to the on-screen preview and to `MJPEGServer`.
+/// `Stream`. Every frame goes to the on-screen preview and to `MJPEGServer`, and, when
+/// the user turns sound on, the glasses' microphone goes to the server's `/audio` route.
 @Observable
 @MainActor
 final class WearablesManager {
@@ -30,6 +31,25 @@ final class WearablesManager {
 
   static let frameRate: UInt = 24
 
+  #if EXPERIMENTAL_AUDIO
+  /// Where sound comes from. Only Debug builds compile this: the camera stream's audio
+  /// is an experimental DAT feature, and apps using it can't be published yet.
+  enum AudioSource: String, CaseIterable, Identifiable {
+    /// Hands-free profile; standard Bluetooth, fine to ship.
+    case bluetooth
+    /// PCM delivered with the camera stream, in sync with the video (experimental).
+    case cameraStream
+
+    var id: String { rawValue }
+    var label: String {
+      switch self {
+      case .bluetooth: return "Bluetooth (HFP)"
+      case .cameraStream: return "Camera stream (experimental)"
+      }
+    }
+  }
+  #endif
+
   // MARK: - Observed state
 
   private(set) var registrationState: RegistrationState
@@ -40,8 +60,15 @@ final class WearablesManager {
   private(set) var fps: Double = 0
   private(set) var viewerCount = 0
   var quality: Quality = .medium {
-    didSet { if oldValue != quality { restartStreamForNewQuality() } }
+    didSet { if oldValue != quality { restartStream() } }
   }
+  /// Off by default and on every launch; the microphone only runs while this is on and
+  /// live view is running.
+  private(set) var audioEnabled = false
+  private(set) var isCapturingAudio = false
+  #if EXPERIMENTAL_AUDIO
+  private(set) var audioSource: AudioSource = .bluetooth
+  #endif
   var errorMessage: String?
   var showCameraPermissionPrompt = false
 
@@ -75,6 +102,7 @@ final class WearablesManager {
   @ObservationIgnored private var restartAfterStop = false
   @ObservationIgnored private var frameTimes: [CFTimeInterval] = []
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+  @ObservationIgnored private let mic = GlassesMic()
 
   init(wearables: WearablesInterface = Wearables.shared, server: MJPEGServer = MJPEGServer()) {
     self.wearables = wearables
@@ -142,6 +170,8 @@ final class WearablesManager {
   func startStreaming() {
     wantsStream = true
     UIApplication.shared.isIdleTimerDisabled = true
+    // Meta recommends setting up HFP before the camera stream starts.
+    updateAudioCapture()
     if let session {
       if session.state == .started { Task { await beginStreamIfPermitted() } }
       return
@@ -164,7 +194,90 @@ final class WearablesManager {
     wantsStream = false
     restartAfterStop = false
     UIApplication.shared.isIdleTimerDisabled = false
+    updateAudioCapture()
     session?.stop()
+  }
+
+  // MARK: - Audio
+
+  func setAudioEnabled(_ enabled: Bool) {
+    guard enabled != audioEnabled else { return }
+    guard enabled else {
+      audioEnabled = false
+      updateAudioCapture()
+      return
+    }
+    Task {
+      guard await requestAudioPermission() else { return }
+      audioEnabled = true
+      updateAudioCapture()
+    }
+  }
+
+  #if EXPERIMENTAL_AUDIO
+  func setAudioSource(_ source: AudioSource) {
+    guard source != audioSource else { return }
+    Task {
+      let previous = audioSource
+      audioSource = source
+      if audioEnabled, !(await requestAudioPermission()) {
+        audioSource = previous
+        return
+      }
+      updateAudioCapture()
+    }
+  }
+  #endif
+
+  private var usesStreamAudio: Bool {
+    #if EXPERIMENTAL_AUDIO
+    return audioSource == .cameraStream
+    #else
+    return false
+    #endif
+  }
+
+  /// iOS microphone permission for HFP; the Meta AI microphone permission for stream audio.
+  private func requestAudioPermission() async -> Bool {
+    guard usesStreamAudio else {
+      if await GlassesMic.requestPermission() { return true }
+      errorMessage = GlassesMic.MicError.permissionDenied.localizedDescription
+      return false
+    }
+    do {
+      if try await wearables.checkPermissionStatus(.microphone) == .granted { return true }
+      if try await wearables.requestPermission(.microphone) == .granted { return true }
+      errorMessage = "Microphone permission was denied in the Meta AI app."
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    return false
+  }
+
+  /// Runs the sound source exactly while sound is on and live view is wanted.
+  private func updateAudioCapture() {
+    let useMic = audioEnabled && wantsStream && !usesStreamAudio
+    if useMic != mic.isRunning {
+      if useMic {
+        let server = self.server
+        do {
+          try mic.start { server.publishAudio($0) }
+        } catch {
+          audioEnabled = false
+          errorMessage = error.localizedDescription
+        }
+      } else {
+        mic.stop()
+      }
+    }
+    let streamAudio = audioEnabled && wantsStream && usesStreamAudio
+    server.setAudioAvailable(mic.isRunning || streamAudio)
+    isCapturingAudio = mic.isRunning || streamAudio
+
+    // The audio codec is fixed per stream, so restart the camera stream when it changes.
+    if wantsStream, let camera, (camera.stream.streamConfiguration.audioCodec != nil) != streamAudio {
+      restartStream()
+    }
   }
 
   /// Called after the user confirms the switch to the Meta AI app for camera permission.
@@ -198,14 +311,8 @@ final class WearablesManager {
 
   private func beginStream() {
     guard wantsStream, camera == nil, let session, session.state == .started else { return }
-    // `.raw` delivers decoded frames that `makeUIImage()` can render directly.
-    let config = StreamConfiguration(
-      videoCodec: .raw,
-      resolution: quality.resolution,
-      frameRate: Self.frameRate
-    )
     do {
-      guard let newCamera = try session.addCamera(config: config) else {
+      guard let newCamera = try session.addCamera(config: makeStreamConfiguration()) else {
         errorMessage = "Couldn't start the glasses camera. Try again."
         return
       }
@@ -219,7 +326,22 @@ final class WearablesManager {
     }
   }
 
-  private func restartStreamForNewQuality() {
+  private func makeStreamConfiguration() -> StreamConfiguration {
+    // `.raw` delivers decoded frames that `makeUIImage()` can render directly.
+    #if EXPERIMENTAL_AUDIO
+    if audioEnabled && usesStreamAudio {
+      return StreamConfiguration(
+        videoCodec: .raw,
+        audioCodec: .pcm(sampleRate: .rate16000, numberOfChannels: 1),
+        resolution: quality.resolution,
+        frameRate: Self.frameRate
+      )
+    }
+    #endif
+    return StreamConfiguration(videoCodec: .raw, resolution: quality.resolution, frameRate: Self.frameRate)
+  }
+
+  private func restartStream() {
     guard let camera else { return }
     restartAfterStop = true
     camera.stop()
@@ -232,7 +354,7 @@ final class WearablesManager {
       Task { @MainActor in self?.handleSessionState(state) }
     }.store(in: sessionTokens)
     session.errorPublisher.listen { [weak self] error in
-      Task { @MainActor in self?.errorMessage = error.localizedDescription }
+      Task { @MainActor in self?.handleSessionError(error) }
     }.store(in: sessionTokens)
   }
 
@@ -246,6 +368,15 @@ final class WearablesManager {
     default:
       break
     }
+  }
+
+  /// A session that fails before it starts may never report `.stopped`. Drop it so the
+  /// button returns to "Start live view" and the next tap creates a fresh session.
+  private func handleSessionError(_ error: DeviceSessionError) {
+    errorMessage = error.localizedDescription
+    guard sessionState != .started else { return }
+    session?.stop()
+    cleanupSession()
   }
 
   private func observe(_ stream: MWDATCamera.Stream) {
@@ -264,6 +395,16 @@ final class WearablesManager {
     stream.errorPublisher.listen { [weak self] error in
       Task { @MainActor in self?.errorMessage = error.localizedDescription }
     }.store(in: streamTokens)
+
+    #if EXPERIMENTAL_AUDIO
+    if stream.streamConfiguration.audioCodec != nil {
+      let converter = PCM16Converter()
+      stream.audioFramePublisher.listen { frame in
+        guard let pcm = converter.convert(frame.pcmBuffer) else { return }
+        server.publishAudio(pcm)
+      }.store(in: streamTokens)
+    }
+    #endif
   }
 
   private func handleStreamState(_ state: StreamState) {
@@ -309,6 +450,7 @@ final class WearablesManager {
     // Stopped by the user, or the glasses dropped the session (taken off, out of range).
     wantsStream = false
     UIApplication.shared.isIdleTimerDisabled = false
+    updateAudioCapture()
   }
 
   /// Names used by `/status` and `web/viewer.html`.

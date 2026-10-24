@@ -68,10 +68,25 @@ private struct StatusBar: View {
           .monospacedDigit()
       }
       Spacer()
+      if manager.isCapturingAudio {
+        Image(systemName: "mic.fill")
+          .foregroundStyle(.red)
+          .accessibilityLabel("Glasses microphone on")
+      }
       if manager.viewerCount > 0 {
         Label("\(manager.viewerCount)", systemImage: "desktopcomputer")
       }
       Menu {
+        #if EXPERIMENTAL_AUDIO
+        Picker(
+          "Sound source",
+          selection: Binding(get: { manager.audioSource }, set: { manager.setAudioSource($0) })
+        ) {
+          ForEach(WearablesManager.AudioSource.allCases) { source in
+            Text(source.label).tag(source)
+          }
+        }
+        #endif
         Button("Disconnect glasses", role: .destructive) { manager.disconnectGlasses() }
       } label: {
         Image(systemName: "ellipsis.circle")
@@ -115,6 +130,16 @@ private struct Controls: View {
         .tint(manager.wantsStream ? .red : .accentColor)
 
         Button {
+          manager.setAudioEnabled(!manager.audioEnabled)
+        } label: {
+          Image(systemName: manager.audioEnabled ? "mic.fill" : "mic.slash")
+            .frame(minWidth: 24)
+        }
+        .buttonStyle(.bordered)
+        .tint(manager.audioEnabled ? .red : nil)
+        .accessibilityLabel(manager.audioEnabled ? "Turn off glasses microphone" : "Turn on glasses microphone")
+
+        Button {
           showShareSheet = true
         } label: {
           Label("Desktop", systemImage: "display")
@@ -146,7 +171,7 @@ private struct ShareSheet: View {
         Text(url)
           .font(.title3.monospaced())
           .textSelection(.enabled)
-        Text("Open this address in a browser on the same Wi-Fi. For OBS or VLC use \(url)/stream")
+        Text("Open this address in a browser on the same Wi-Fi. For OBS or VLC use \(url)/stream, and \(url)/audio for sound.")
           .font(.footnote)
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)

@@ -46,15 +46,24 @@
 		<key>TeamID</key>
 		<string>$(DEVELOPMENT_TEAM)</string>
 	</dict>
+	<!-- The DAT SDK carries the camera stream over this accessory protocol; without it
+	     sessions fail with "Device is not connected". -->
+	<key>UISupportedExternalAccessoryProtocols</key>
+	<array>
+		<string>com.meta.ar.wearable</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
 		<string>bluetooth-peripheral</string>
+		<string>external-accessory</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Needed to connect to your Meta AI glasses.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Needed to connect to your Meta AI glasses.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Only when you turn on sound: streams your voice from the glasses' microphone to computers on your Wi-Fi. Nothing is recorded.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Lets GlassCast connect to your glasses and share their live view with computers on your Wi-Fi.</string>
 	<key>NSBonjourServices</key>

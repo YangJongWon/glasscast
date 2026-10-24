@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Desktop stand-in for the GlassCast phone app.
 
-Serves web/viewer.html and the same /stream, /snapshot.jpg and /status
-endpoints the iOS and Android apps expose, looping over a folder of JPEG
-frames. Use it to work on the viewer, or to set up OBS/VLC, without glasses.
+Serves web/viewer.html and the same /stream, /snapshot.jpg, /audio and
+/status endpoints the iOS and Android apps expose, looping over a folder of
+JPEG frames. /audio plays a short beep once a second in place of the glasses
+microphone. Use it to work on the viewer, or to set up OBS/VLC, without glasses.
 
     ffmpeg -i clip.mp4 -vf "fps=24,scale=504:896" frames/%04d.jpg
     python3 tools/mock_server.py frames/ --port 8080
@@ -13,7 +14,9 @@ Standard library only.
 
 import argparse
 import json
+import math
 import socketserver
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +24,8 @@ from pathlib import Path
 
 BOUNDARY = "glasscast"
 MAX_CLIENTS = 4
+AUDIO_RATE = 16_000
+AUDIO_CHUNK = AUDIO_RATE // 50  # 20 ms
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -62,6 +67,24 @@ def jpeg_size(data):
             return w, h
         i += 2 + length
     return 0, 0
+
+
+def wav_header(rate):
+    """Header for an endless mono 16-bit WAV; size fields at their maximum."""
+    return (
+        b"RIFF" + struct.pack("<I", 0xFFFFFFFF) + b"WAVEfmt "
+        + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+        + b"data" + struct.pack("<I", 0xFFFFFFFF)
+    )
+
+
+def beep_second():
+    """One second of 16-bit PCM: a 120 ms 660 Hz beep, then silence."""
+    samples = []
+    for i in range(AUDIO_RATE):
+        t = i / AUDIO_RATE
+        samples.append(int(6000 * math.sin(2 * math.pi * 660 * t)) if t < 0.12 else 0)
+    return struct.pack(f"<{len(samples)}h", *samples)
 
 
 def produce(hub, frames, fps):
@@ -118,6 +141,7 @@ def make_handler(hub, viewer):
                         "width": hub.size[0],
                         "height": hub.size[1],
                         "clients": hub.clients,
+                        "audio": True,
                     }
                 ).encode()
                 self.send_bytes(200, "application/json", body)
@@ -128,6 +152,8 @@ def make_handler(hub, viewer):
                     self.send_bytes(200, "image/jpeg", hub.frame)
             elif path == "/stream":
                 self.stream()
+            elif path == "/audio":
+                self.audio()
             else:
                 self.send_bytes(404, "text/plain", b"Not found\n")
 
@@ -164,6 +190,27 @@ def make_handler(hub, viewer):
             finally:
                 with hub.cond:
                     hub.clients -= 1
+
+        def audio(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            pcm = beep_second()
+            step = AUDIO_CHUNK * 2
+            try:
+                self.wfile.write(wav_header(AUDIO_RATE))
+                start, i = time.monotonic(), 0
+                while True:
+                    offset = (i * step) % len(pcm)
+                    self.wfile.write(pcm[offset : offset + step])
+                    self.wfile.flush()
+                    i += 1
+                    time.sleep(max(0.0, start + i * AUDIO_CHUNK / AUDIO_RATE - time.monotonic()))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     return Handler
 
