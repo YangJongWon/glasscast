@@ -70,7 +70,7 @@ Open `android/` in Android Studio and run the `app` configuration on a real phon
    - **OBS**: add a *Browser* source with `http://<phone-ip>:8080/?clean`, or a *Media Source* with "Local file" unchecked and input `http://<phone-ip>:8080/stream`.
    - **VLC**: *Open Network Stream* → `http://<phone-ip>:8080/stream`.
 
-### Zoom and auto correction (iPhone)
+### Zoom and auto correction
 
 The glasses camera is very wide. Pinch anywhere on the live view, or tap **1× 1.5× 2× 3×**, to zoom up to 4×. Zoom applies to the phone preview, desktop viewers and recordings alike.
 
@@ -80,7 +80,9 @@ Three toggles above the zoom buttons process every frame on the phone:
 - **Stabilize** (hand): electronic stabilization. Vision measures the shake between frames, and a slightly tighter crop slides against it. Slow turns still come through.
 - **Auto framing** (person): zooms smoothly toward faces, then people, then text. It eases back out when nothing is found for a couple of seconds. Pinching or tapping a zoom preset turns it off.
 
-Photos taken with the glasses camera are always saved unprocessed. Android has pinch zoom, but not these toggles yet.
+Photos taken with the glasses camera are always saved unprocessed. Android does the same work without extra libraries: auto levels and gamma on the luma plane, block-matching stabilization, and auto framing on faces only, using the platform `FaceDetector`.
+
+Tap the live view, or swipe the control panel down, to hide the controls for a clean view.
 
 ### Photos
 
@@ -94,7 +96,7 @@ iOS Debug builds can switch to *⋯ → Photo quality → Full quality*, which u
 
 ### Recording
 
-**iPhone**: during live view, tap the red record button next to the shutter. The video is recorded as shown, with zoom applied and with sound if sound is on. It is saved as an MP4 in the app's gallery, where you can play, share or save it to Photos. Recording on Android isn't built yet.
+**Phone**: switch to **VIDEO** above the shutter during live view, then tap the red shutter to start and stop. The video is recorded as shown, with zoom and auto correction applied, and with sound if sound is on. On iPhone it goes to the app's gallery, where you can play, share or save it to Photos. On Android it goes to *Movies/GlassCast*.
 
 **Computer**: the browser viewer can record what you're watching. Click **Record**, then **Stop** to download the file: MP4 in Safari and recent Chrome, WebM elsewhere. When sound is on as you start, it's recorded too. Recording happens on the computer, so it works the same with iOS and Android phones.
 

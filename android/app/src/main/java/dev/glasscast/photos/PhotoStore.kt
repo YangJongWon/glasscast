@@ -18,16 +18,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 /**
- * Photos taken with the glasses camera, saved to `Pictures/GlassCast` through MediaStore so
- * they also show up in the phone's gallery app. No storage permission is needed: since
+ * Photos taken with the glasses camera (`Pictures/GlassCast`) and live-view recordings
+ * (`Movies/GlassCast`), saved through MediaStore so they also show up in the phone's gallery. No storage permission is needed: since
  * Android 10 an app can write to, list and delete the media it created itself.
  */
 class PhotoStore(private val context: Context) {
   companion object {
     private const val RELATIVE_PATH = "Pictures/GlassCast/"
+    private const val VIDEO_PATH = "Movies/GlassCast/"
   }
 
-  data class Photo(val uri: Uri, val name: String)
+  data class Photo(val uri: Uri, val name: String, val isVideo: Boolean = false, val added: Long = 0)
 
   private val _photos = MutableStateFlow<List<Photo>>(emptyList())
   /** Newest first. */
@@ -41,27 +42,66 @@ class PhotoStore(private val context: Context) {
 
   suspend fun reload() =
       withContext(Dispatchers.IO) {
-        val found = mutableListOf<Photo>()
-        resolver
-            .query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME),
-                "${MediaStore.Images.Media.RELATIVE_PATH} = ?",
-                arrayOf(RELATIVE_PATH),
-                "${MediaStore.Images.Media.DATE_ADDED} DESC",
-            )
-            ?.use { cursor ->
-              val id = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-              val name = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-              while (cursor.moveToNext()) {
-                val uri =
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cursor.getLong(id))
-                found += Photo(uri, cursor.getString(name))
-              }
-            }
-        _photos.value = found
+        val found =
+            query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, RELATIVE_PATH, isVideo = false) +
+                query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, VIDEO_PATH, isVideo = true)
+        _photos.value = found.sortedByDescending { it.added }
         _latestThumbnail.value = found.firstOrNull()?.let(::thumbnail)
       }
+
+  private fun query(collection: Uri, path: String, isVideo: Boolean): List<Photo> {
+    val found = mutableListOf<Photo>()
+    resolver
+        .query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.DATE_ADDED),
+            "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+            arrayOf(path),
+            null,
+        )
+        ?.use { cursor ->
+          val id = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+          val name = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+          val added = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+          while (cursor.moveToNext()) {
+            val uri = ContentUris.withAppendedId(collection, cursor.getLong(id))
+            found += Photo(uri, cursor.getString(name), isVideo, cursor.getLong(added))
+          }
+        }
+    return found
+  }
+
+  /** Creates a hidden (pending) video for a recording; publish it with [finishVideo]. */
+  suspend fun newVideo(): Photo =
+      withContext(Dispatchers.IO) {
+        val name = "glasscast-${nameFormat.format(Date())}.mp4"
+        val values =
+            ContentValues().apply {
+              put(MediaStore.Video.Media.DISPLAY_NAME, name)
+              put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+              put(MediaStore.Video.Media.RELATIVE_PATH, VIDEO_PATH)
+              put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        val uri =
+            resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                ?: error("Couldn't create the video in Movies/GlassCast.")
+        Photo(uri, name, isVideo = true, added = System.currentTimeMillis() / 1000)
+      }
+
+  /** Makes a finished recording visible, or removes it if nothing was recorded. */
+  suspend fun finishVideo(video: Photo, recorded: Boolean) =
+      withContext(Dispatchers.IO) {
+        if (!recorded) {
+          resolver.delete(video.uri, null, null)
+          return@withContext
+        }
+        resolver.update(
+            video.uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
+        _photos.update { listOf(video) + it }
+        _latestThumbnail.value = thumbnail(video)
+      }
+
+  fun openForWriting(video: Photo) = resolver.openFileDescriptor(video.uri, "rw")
 
   /** Saves a JPEG from the glasses. */
   suspend fun add(jpeg: ByteArray): Photo =
@@ -84,7 +124,7 @@ class PhotoStore(private val context: Context) {
           resolver.delete(uri, null, null)
           throw e
         }
-        val photo = Photo(uri, name)
+        val photo = Photo(uri, name, added = System.currentTimeMillis() / 1000)
         _photos.update { listOf(photo) + it }
         _latestThumbnail.value = thumbnail(photo)
         photo

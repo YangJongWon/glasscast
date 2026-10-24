@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -68,7 +71,7 @@ fun GalleryScreen(store: PhotoStore, onClose: () -> Unit) {
       if (photos.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
           Text(
-              "No photos yet.\nStart live view and tap the shutter to take a photo with your glasses.",
+              "No photos yet.\nStart live view, then tap the shutter to take a photo with your glasses, or switch to VIDEO to record.",
               color = Color.White.copy(alpha = 0.7f),
               textAlign = TextAlign.Center,
           )
@@ -103,6 +106,14 @@ private fun Thumbnail(store: PhotoStore, photo: PhotoStore.Photo, modifier: Modi
           modifier = Modifier.fillMaxSize(),
       )
     }
+    if (photo.isVideo) {
+      Icon(
+          Icons.Filled.Videocam,
+          contentDescription = "Video",
+          tint = Color.White,
+          modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).size(18.dp),
+      )
+    }
   }
 }
 
@@ -114,10 +125,14 @@ private fun PhotoDetail(store: PhotoStore, photo: PhotoStore.Photo, onClose: () 
   LaunchedEffect(photo) {
     bitmap =
         withContext(Dispatchers.IO) {
-          runCatching {
-                ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, photo.uri))
-              }
-              .getOrNull()
+          if (photo.isVideo) {
+            store.thumbnail(photo, 1080)
+          } else {
+            runCatching {
+                  ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, photo.uri))
+                }
+                .getOrNull()
+          }
         }
   }
 
@@ -132,7 +147,7 @@ private fun PhotoDetail(store: PhotoStore, photo: PhotoStore.Photo, onClose: () 
             onClick = {
               val send =
                   Intent(Intent.ACTION_SEND)
-                      .setType("image/jpeg")
+                      .setType(if (photo.isVideo) "video/mp4" else "image/jpeg")
                       .putExtra(Intent.EXTRA_STREAM, photo.uri)
                       .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
               context.startActivity(Intent.createChooser(send, null))
@@ -160,6 +175,20 @@ private fun PhotoDetail(store: PhotoStore, photo: PhotoStore.Photo, onClose: () 
           )
         } else {
           CircularProgressIndicator(color = Color.White)
+        }
+        if (photo.isVideo) {
+          // Plays in the phone's video player.
+          IconButton(
+              onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(photo.uri, "video/mp4")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+              },
+              modifier = Modifier.size(88.dp),
+          ) {
+            Icon(Icons.Filled.PlayCircle, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(80.dp))
+          }
         }
       }
     }

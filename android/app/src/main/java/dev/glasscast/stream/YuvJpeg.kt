@@ -13,11 +13,15 @@ import java.io.ByteArrayOutputStream
 object YuvJpeg {
   private const val QUALITY = 70
 
-  fun i420ToJpeg(i420: ByteArray, width: Int, height: Int, zoom: Float = 1f): ByteArray? {
+  fun i420ToJpeg(i420: ByteArray, width: Int, height: Int, zoom: Float = 1f): ByteArray? =
+      i420ToJpeg(i420, width, height, cropRect(width, height, zoom))
+
+  /** Encodes only [crop], whose edges must be even. */
+  fun i420ToJpeg(i420: ByteArray, width: Int, height: Int, crop: Rect): ByteArray? {
     if (i420.size < width * height * 3 / 2) return null
     val image = YuvImage(i420ToNv21(i420, width, height), ImageFormat.NV21, width, height, null)
     val out = ByteArrayOutputStream(width * height / 4)
-    if (!image.compressToJpeg(cropRect(width, height, zoom), QUALITY, out)) return null
+    if (!image.compressToJpeg(crop, QUALITY, out)) return null
     return out.toByteArray()
   }
 

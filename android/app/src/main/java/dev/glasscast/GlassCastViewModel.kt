@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,8 @@ import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
+import com.meta.wearable.dat.core.types.DatError
+import com.meta.wearable.dat.core.types.DeviceSessionError
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
@@ -27,8 +30,10 @@ import dev.glasscast.photos.PhotoStore
 import dev.glasscast.server.StreamService
 import dev.glasscast.stream.AudioHub
 import dev.glasscast.stream.FrameHub
+import dev.glasscast.stream.FrameProcessor
 import dev.glasscast.stream.GlassesMic
 import dev.glasscast.stream.GlassesMicException
+import dev.glasscast.stream.VideoRecorder
 import dev.glasscast.stream.JpegFrame
 import dev.glasscast.stream.YuvJpeg
 import java.io.ByteArrayOutputStream
@@ -59,18 +64,29 @@ data class UiState(
     val quality: Quality = Quality.MEDIUM,
     /** Digital zoom for the preview and desktop viewers, 1..4. */
     val zoom: Float = 1f,
+    /** Auto brightness and contrast. */
+    val autoEnhance: Boolean = false,
+    /** Smooths out head shake. */
+    val stabilize: Boolean = false,
+    /** Zooms toward faces; replaces manual zoom while on. */
+    val autoFrame: Boolean = false,
     /** Off by default and on every launch; the mic only runs while this is on and live view is wanted. */
     val audioEnabled: Boolean = false,
     val capturingAudio: Boolean = false,
     /** A photo was requested and hasn't arrived yet. */
     val takingPhoto: Boolean = false,
+    /** When the current recording started (elapsedRealtime); null while not recording. */
+    val recordingSince: Long? = null,
     val fps: Int = 0,
     val showCameraPermissionPrompt: Boolean = false,
     val error: String? = null,
+    /** A problem with the glasses connection, shown as a banner with what to do about it. */
+    val connectionIssue: ConnectionIssue? = null,
 ) {
   val isRegistered: Boolean get() = registrationState == RegistrationState.REGISTERED
   val isRegistering: Boolean get() = registrationState == RegistrationState.REGISTERING
   val isStreaming: Boolean get() = streamState == StreamState.STREAMING
+  val isRecording: Boolean get() = recordingSince != null
 
   val statusText: String
     get() =
@@ -83,8 +99,19 @@ data class UiState(
               when {
                 sessionState == DeviceSessionState.STARTING -> "Connecting to glasses…"
                 hasActiveDevice -> "Ready"
-                else -> "Put on your glasses"
+                else -> "Glasses not connected"
               }
+        }
+
+  /** One line under the status explaining what to do, when the state calls for it. */
+  val statusHint: String?
+    get() =
+        when {
+          streamState == StreamState.PAUSED -> "Unfold your glasses and put them on to continue."
+          streamState == StreamState.STOPPED &&
+              sessionState != DeviceSessionState.STARTING &&
+              !hasActiveDevice -> "Turn on your glasses, unfold them and keep them near your phone."
+          else -> null
         }
 }
 
@@ -102,10 +129,15 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   }
 
   private val prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-  /** Read on the frame thread. */
-  @Volatile private var zoom = prefs.getFloat("zoom", 1f)
 
-  private val _state = MutableStateFlow(UiState(zoom = zoom))
+  private val _state =
+      MutableStateFlow(
+          UiState(
+              zoom = prefs.getFloat("zoom", 1f),
+              autoEnhance = prefs.getBoolean("autoEnhance", false),
+              stabilize = prefs.getBoolean("stabilize", false),
+              autoFrame = prefs.getBoolean("autoFrame", false),
+          ))
   val state: StateFlow<UiState> = _state.asStateFlow()
 
   /** Kept apart from [state] so ~24 updates a second don't recompose the whole screen. */
@@ -127,8 +159,13 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   private var restartAfterStop = false
   private val frameTimes = ArrayDeque<Long>()
   private val mic = GlassesMic(application)
+  private val processor = FrameProcessor()
+  /** Fed from the frame and microphone threads. */
+  @Volatile private var recorder: VideoRecorder? = null
+  private var recording: Pair<PhotoStore.Photo, ParcelFileDescriptor>? = null
 
   init {
+    applyProcessing()
     viewModelScope.launch { photos.reload() }
     // Desktop viewers' "Take photo" button.
     server.onCaptureRequest = { viewModelScope.launch { takePhoto() } }
@@ -166,7 +203,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
 
   /** Starts a device session if needed; the camera is added once the session reports STARTED. */
   fun startStreaming() {
-    _state.update { it.copy(wantsStream = true) }
+    _state.update { it.copy(wantsStream = true, connectionIssue = null) }
     // Meta recommends setting up HFP before the camera stream starts.
     updateAudioCapture()
     session?.let {
@@ -181,7 +218,16 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
           _state.update { it.copy(sessionState = DeviceSessionState.STARTING) }
           created.start()
         }
-        .onFailure { error, _ -> fail(error.description) }
+        .onFailure { error, _ -> report(error) }
+  }
+
+  fun retryConnection() {
+    _state.update { it.copy(connectionIssue = null) }
+    startStreaming()
+  }
+
+  fun dismissConnectionIssue() {
+    _state.update { it.copy(connectionIssue = null) }
   }
 
   /** Ends the session; the SDK cascades the stop to the camera and its stream. */
@@ -233,6 +279,50 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     }
   }
 
+  // MARK: - Recording
+
+  /** Records the live view as shown (zoom included), with sound when it is on. */
+  fun startRecording() {
+    val frame = _preview.value ?: return
+    if (!_state.value.isStreaming || _state.value.isRecording) return
+    _state.update { it.copy(recordingSince = SystemClock.elapsedRealtime()) }
+    viewModelScope.launch {
+      try {
+        val video = photos.newVideo()
+        val file = photos.openForWriting(video) ?: error("Couldn't open the video file.")
+        val created =
+            withContext(Dispatchers.IO) {
+              VideoRecorder(file.fileDescriptor, frame.width, frame.height, withAudio = mic.isRunning)
+            }
+        recording = video to file
+        recorder = created
+        // Stop was tapped while the encoders were starting.
+        if (!_state.value.isRecording) {
+          _state.update { it.copy(recordingSince = SystemClock.elapsedRealtime()) }
+          stopRecording()
+        }
+      } catch (e: Exception) {
+        _state.update { it.copy(recordingSince = null) }
+        fail("Couldn't start recording: ${e.message}")
+      }
+    }
+  }
+
+  fun stopRecording() {
+    if (!_state.value.isRecording) return
+    _state.update { it.copy(recordingSince = null) }
+    val active = recorder ?: return
+    recorder = null
+    val (video, file) = recording ?: return
+    recording = null
+    // The app scope, so the file is still finished when this runs from onCleared().
+    getApplication<GlassCastApplication>().appScope.launch {
+      val recorded = withContext(Dispatchers.IO) { active.stop().also { file.close() } }
+      photos.finishVideo(video, recorded)
+      if (!recorded) fail("Nothing was recorded. Keep live view running a little longer.")
+    }
+  }
+
   // MARK: - Audio
 
   /** Turning sound on requires RECORD_AUDIO; MainActivity asks for it first. */
@@ -253,7 +343,10 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     if (shouldCapture == mic.isRunning) return
     if (shouldCapture) {
       try {
-        mic.start(viewModelScope, AudioHub::publish)
+        mic.start(viewModelScope) { pcm ->
+          AudioHub.publish(pcm)
+          recorder?.appendAudio(pcm)
+        }
         AudioHub.setAvailable(true)
       } catch (e: GlassesMicException) {
         _state.update { it.copy(audioEnabled = false) }
@@ -272,10 +365,35 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   }
 
   fun setZoom(value: Float) {
+    // Zooming by hand takes over from auto framing.
+    if (_state.value.autoFrame) setAutoFrame(false)
     val clamped = value.coerceIn(MIN_ZOOM, MAX_ZOOM)
-    zoom = clamped
     prefs.edit().putFloat("zoom", clamped).apply()
     _state.update { it.copy(zoom = clamped) }
+    applyProcessing()
+  }
+
+  private fun applyProcessing() {
+    val s = _state.value
+    processor.settings = FrameProcessor.Settings(s.zoom, s.autoEnhance, s.stabilize, s.autoFrame)
+  }
+
+  fun setAutoEnhance(on: Boolean) {
+    prefs.edit().putBoolean("autoEnhance", on).apply()
+    _state.update { it.copy(autoEnhance = on) }
+    applyProcessing()
+  }
+
+  fun setStabilize(on: Boolean) {
+    prefs.edit().putBoolean("stabilize", on).apply()
+    _state.update { it.copy(stabilize = on) }
+    applyProcessing()
+  }
+
+  fun setAutoFrame(on: Boolean) {
+    prefs.edit().putBoolean("autoFrame", on).apply()
+    _state.update { it.copy(autoFrame = on) }
+    applyProcessing()
   }
 
   fun setQuality(quality: Quality) {
@@ -320,7 +438,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
               _state.update { it.copy(showCameraPermissionPrompt = true) }
             }
           }
-          .onFailure { error, _ -> fail(error.description) }
+          .onFailure { error, _ -> report(error) }
     }
   }
 
@@ -339,13 +457,13 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
           observeStream(added.stream)
           _state.update { it.copy(streamState = StreamState.STARTING) }
           added.stream.start().onFailure { error, _ ->
-            fail(error.description)
+            report(error)
             clearStreamResources()
           }
         }
         .onFailure { error, _ ->
           StreamService.stop(getApplication())
-          fail(error.description)
+          report(error)
         }
   }
 
@@ -359,14 +477,23 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
                 _state.update { it.copy(sessionState = state) }
                 when (state) {
                   DeviceSessionState.STARTED -> beginStreamIfPermitted()
-                  DeviceSessionState.STOPPED -> cleanupSession()
+                  DeviceSessionState.STOPPED -> {
+                    // Not stopped by the user (stopStreaming clears wantsStream first): the
+                    // glasses went away.
+                    if (_state.value.wantsStream && _state.value.connectionIssue == null) {
+                      _state.update { it.copy(connectionIssue = ConnectionIssue.LOST) }
+                    }
+                    cleanupSession()
+                  }
                   else -> Unit
                 }
               }
             },
             viewModelScope.launch {
               session.errors.collect { error ->
-                fail(error.description)
+                // A compatibility notice, not a failure: the session keeps working.
+                if (error == DeviceSessionError.DWA_OUT_OF_STU_RANGE) return@collect
+                report(error)
                 // A session that fails before it starts may never report STOPPED. Drop it so
                 // the button resets and the next tap creates a fresh session.
                 if (_state.value.sessionState != DeviceSessionState.STARTED) {
@@ -398,7 +525,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
               }
             },
             viewModelScope.launch {
-              stream.errorStream.collect { error -> fail(error.description) }
+              stream.errorStream.collect { error -> report(error) }
             },
         )
   }
@@ -409,11 +536,13 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     val buffer = frame.buffer.duplicate()
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
-    val crop = YuvJpeg.cropRect(frame.width, frame.height, zoom)
-    val jpeg = YuvJpeg.i420ToJpeg(bytes, frame.width, frame.height, zoom) ?: return
+    val crop = processor.process(bytes, frame.width, frame.height)
+    val jpeg = YuvJpeg.i420ToJpeg(bytes, frame.width, frame.height, crop) ?: return
 
     FrameHub.publish(JpegFrame(jpeg, crop.width(), crop.height()))
-    _preview.value = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+    val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+    _preview.value = bitmap
+    if (bitmap != null) recorder?.drawFrame(bitmap)
 
     val now = SystemClock.elapsedRealtime()
     frameTimes.addLast(now)
@@ -434,6 +563,8 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
   }
 
   private fun clearStreamResources() {
+    // Keep what was recorded so far.
+    stopRecording()
     streamJobs.forEach { it.cancel() }
     streamJobs = emptyList()
     // Closing detaches the capability so a later addCamera() can succeed.
@@ -457,6 +588,10 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     updateAudioCapture()
   }
 
+  private fun report(error: DatError) {
+    _state.update { it.copy(connectionIssue = ConnectionIssue.from(error)) }
+  }
+
   private fun fail(message: String) {
     _state.update { it.copy(error = message) }
   }
@@ -471,6 +606,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
       }
 
   override fun onCleared() {
+    stopRecording()
     server.onCaptureRequest = null
     AudioHub.setAvailable(false)
     mic.stop()

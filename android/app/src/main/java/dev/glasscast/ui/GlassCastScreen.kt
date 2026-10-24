@@ -3,6 +3,34 @@ package dev.glasscast.ui
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
+import android.os.SystemClock
+import dev.glasscast.ConnectionIssue
+import kotlin.math.abs
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -163,6 +191,15 @@ private fun ConnectScreen(state: UiState, onConnect: () -> Unit) {
   }
 }
 
+/** What the shutter does. */
+private enum class CaptureMode(val label: String) {
+  PHOTO("PHOTO"),
+  VIDEO("VIDEO"),
+}
+
+private val Live = Color(0xFFDC2626)
+private val Accent = Color(0xFFFACC15)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LiveScreen(
@@ -174,24 +211,42 @@ private fun LiveScreen(
   val viewerCount by viewModel.viewerCount.collectAsStateWithLifecycle()
   var showShare by remember { mutableStateOf(false) }
   var showGallery by remember { mutableStateOf(false) }
+  var mode by remember { mutableStateOf(CaptureMode.PHOTO) }
+  // Collapsed: just the live view, with a small handle to bring the controls back.
+  var controlsHidden by remember { mutableStateOf(false) }
 
   Box(Modifier.fillMaxSize()) {
-    Preview(viewModel, state)
+    Preview(viewModel, state, onTap = { controlsHidden = !controlsHidden })
 
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
-      StatusBar(state, viewerCount, onDisconnect)
+      AnimatedVisibility(!controlsHidden, enter = fadeIn(), exit = fadeOut()) {
+        StatusBar(state, viewerCount, onDisconnect)
+      }
+      // Shown even with the controls folded away: the user needs to know.
+      state.connectionIssue?.let { issue ->
+        Spacer(Modifier.height(8.dp))
+        ConnectionBanner(issue, viewModel::retryConnection, viewModel::dismissConnectionIssue)
+      }
       Spacer(Modifier.weight(1f))
-      ZoomChips(state.zoom, viewModel::setZoom)
-      Spacer(Modifier.height(8.dp))
-      ShutterRow(viewModel, state, onOpenGallery = { showGallery = true })
-      Spacer(Modifier.height(12.dp))
-      Controls(
-          state = state,
-          onToggle = { if (state.wantsStream) viewModel.stopStreaming() else viewModel.startStreaming() },
-          onQuality = viewModel::setQuality,
-          onToggleAudio = onToggleAudio,
-          onShare = { showShare = true },
-      )
+      if (controlsHidden) {
+        CollapsedBar(state, onExpand = { controlsHidden = false }, Modifier.align(Alignment.CenterHorizontally))
+      } else {
+        // Float over the preview, above the panel, as in a camera app.
+        AutoToggles(state, viewModel, Modifier.align(Alignment.End))
+        Spacer(Modifier.height(8.dp))
+        ZoomChips(state, viewModel)
+        Spacer(Modifier.height(8.dp))
+        Controls(
+            viewModel = viewModel,
+            state = state,
+            mode = mode,
+            onMode = { mode = it },
+            onCollapse = { controlsHidden = true },
+            onOpenGallery = { showGallery = true },
+            onToggleAudio = onToggleAudio,
+            onShare = { showShare = true },
+        )
+      }
     }
   }
 
@@ -203,105 +258,31 @@ private fun LiveScreen(
   }
 }
 
-/** Camera-style zoom presets. Pinch the preview for anything in between. */
 @Composable
-private fun ZoomChips(zoom: Float, onZoom: (Float) -> Unit) {
-  val presets = listOf(1f, 1.5f, 2f, 3f)
-  val onPreset = presets.any { kotlin.math.abs(zoom - it) < 0.05f }
-  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-    presets.forEach { preset ->
-      val selected = kotlin.math.abs(zoom - preset) < 0.05f
-      ZoomChip(zoomLabel(if (selected) zoom else preset), selected) { onZoom(preset) }
-    }
-    if (!onPreset) ZoomChip(zoomLabel(zoom), selected = true, onClick = {})
-  }
-}
-
-@Composable
-private fun ZoomChip(label: String, selected: Boolean, onClick: () -> Unit) {
-  Box(
-      Modifier.size(width = 48.dp, height = 32.dp)
-          .clip(RoundedCornerShape(50))
-          .background(Color.Black.copy(alpha = if (selected) 0.6f else 0.3f))
-          .clickable(onClick = onClick),
-      contentAlignment = Alignment.Center,
-  ) {
-    Text(label, color = if (selected) Color(0xFFFACC15) else Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-  }
-}
-
-private fun zoomLabel(zoom: Float): String =
-    if (zoom % 1f < 0.05f) "${zoom.toInt()}×" else String.format(java.util.Locale.US, "%.1f×", zoom)
-
-/** Latest photo on the left, the glasses shutter in the middle. */
-@Composable
-private fun ShutterRow(viewModel: GlassCastViewModel, state: UiState, onOpenGallery: () -> Unit) {
-  val thumbnail by viewModel.photos.latestThumbnail.collectAsStateWithLifecycle()
-  val scope = rememberCoroutineScope()
-  val haptics = LocalHapticFeedback.current
-  val canShoot = state.isStreaming && !state.takingPhoto
-
-  Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    Box(Modifier.weight(1f)) {
-      IconButton(
-          onClick = onOpenGallery,
-          modifier =
-              Modifier.size(52.dp)
-                  .clip(RoundedCornerShape(10.dp))
-                  .background(Color.White.copy(alpha = 0.12f)),
-      ) {
-        val image = thumbnail
-        if (image != null) {
-          Image(
-              bitmap = image.asImageBitmap(),
-              contentDescription = "Photos",
-              contentScale = ContentScale.Crop,
-              modifier = Modifier.fillMaxSize(),
-          )
-        } else {
-          Icon(Icons.Filled.PhotoLibrary, contentDescription = "Photos", tint = Color.White)
-        }
-      }
-    }
-    Box(
-        modifier =
-            Modifier.size(72.dp)
-                .border(4.dp, Color.White.copy(alpha = if (state.isStreaming) 1f else 0.4f), CircleShape)
-                .padding(8.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = if (canShoot) 1f else 0.4f))
-                .then(
-                    if (canShoot) {
-                      Modifier.clickable {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch { viewModel.takePhoto() }
-                      }
-                    } else {
-                      Modifier
-                    }),
-        contentAlignment = Alignment.Center,
-    ) {
-      if (state.takingPhoto) CircularProgressIndicator(color = Color.Black, strokeWidth = 3.dp)
-    }
-    Spacer(Modifier.weight(1f))
-  }
-}
-
-@Composable
-private fun Preview(viewModel: GlassCastViewModel, state: UiState) {
+private fun Preview(viewModel: GlassCastViewModel, state: UiState, onTap: () -> Unit) {
   // Collected here so frame updates only recompose the preview.
   val frame by viewModel.preview.collectAsStateWithLifecycle()
-  Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-    val bitmap = frame
+  val bitmap = frame
+  Box(
+      // The whole screen, black bars included, takes pinch and tap while video is showing.
+      Modifier.fillMaxSize()
+          .then(
+              if (bitmap == null) Modifier
+              else
+                  Modifier.pointerInput(Unit) { detectTapGestures { onTap() } }
+                      .pointerInput(Unit) {
+                        detectTransformGestures { _, _, scale, _ ->
+                          viewModel.setZoom(viewModel.state.value.zoom * scale)
+                        }
+                      }),
+      contentAlignment = Alignment.Center,
+  ) {
     if (bitmap != null) {
       Image(
           bitmap = bitmap.asImageBitmap(),
           contentDescription = "Live view from the glasses",
           contentScale = ContentScale.Fit,
-          modifier =
-              Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTransformGestures { _, _, scale, _ -> viewModel.setZoom(viewModel.state.value.zoom * scale) }
-              },
+          modifier = Modifier.fillMaxSize(),
       )
     } else {
       Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -310,10 +291,182 @@ private fun Preview(viewModel: GlassCastViewModel, state: UiState) {
           Spacer(Modifier.height(12.dp))
         }
         Text(state.statusText, color = Color.White.copy(alpha = 0.8f))
+        state.statusHint?.let { hint ->
+          Spacer(Modifier.height(8.dp))
+          Text(
+              hint,
+              color = Color.White.copy(alpha = 0.6f),
+              fontSize = 13.sp,
+              textAlign = TextAlign.Center,
+              modifier = Modifier.padding(horizontal = 40.dp),
+          )
+        }
       }
     }
   }
 }
+
+/** What went wrong with the glasses and what to do, with Try again when it can help. */
+@Composable
+private fun ConnectionBanner(issue: ConnectionIssue, onRetry: () -> Unit, onDismiss: () -> Unit) {
+  Column(
+      Modifier.fillMaxWidth()
+          .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(14.dp))
+          .padding(12.dp),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      Icon(
+          if (issue.kind == ConnectionIssue.Kind.SETUP) Icons.Filled.Settings else Icons.Filled.Warning,
+          contentDescription = null,
+          tint = if (issue.kind == ConnectionIssue.Kind.DEVICE) Color(0xFFF97316) else Live,
+      )
+      Column(Modifier.weight(1f)) {
+        Text(issue.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(issue.message, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+      }
+      IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+        Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Color.White.copy(alpha = 0.7f))
+      }
+    }
+    if (issue.canRetry) {
+      Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Filled.Refresh, null)
+        Spacer(Modifier.width(8.dp))
+        Text("Try again")
+      }
+    }
+  }
+}
+
+/**
+ * What's left when the controls are folded away: a handle to unfold them, and the recording
+ * timer so a running recording is never invisible.
+ */
+@Composable
+private fun CollapsedBar(state: UiState, onExpand: () -> Unit, modifier: Modifier) {
+  Row(
+      modifier
+          .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
+          .padding(horizontal = 12.dp, vertical = 2.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    state.recordingSince?.let { RecordingTimer(it) }
+    IconButton(onClick = onExpand) {
+      Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Show controls", tint = Color.White)
+    }
+  }
+}
+
+/** Red "0:12" counter shown while recording. */
+@Composable
+private fun RecordingTimer(since: Long) {
+  var now by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+  LaunchedEffect(since) {
+    while (true) {
+      now = SystemClock.elapsedRealtime()
+      delay(500)
+    }
+  }
+  val seconds = ((now - since) / 1000).coerceAtLeast(0)
+  Text(
+      "● %d:%02d".format(seconds / 60, seconds % 60),
+      color = Live,
+      fontSize = 14.sp,
+      fontWeight = FontWeight.SemiBold,
+  )
+}
+
+/** Auto enhance, stabilization and auto framing, each a round toggle. */
+@Composable
+private fun AutoToggles(state: UiState, viewModel: GlassCastViewModel, modifier: Modifier) {
+  var caption by remember { mutableStateOf<String?>(null) }
+  LaunchedEffect(caption) {
+    if (caption != null) {
+      delay(1500)
+      caption = null
+    }
+  }
+  Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    caption?.let {
+      Text(
+          it,
+          color = Color.White,
+          fontSize = 13.sp,
+          fontWeight = FontWeight.SemiBold,
+          modifier =
+              Modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                  .padding(horizontal = 10.dp, vertical = 6.dp),
+      )
+    }
+    AutoToggle(Icons.Filled.AutoFixHigh, "Auto enhance", state.autoEnhance) {
+      viewModel.setAutoEnhance(it)
+      caption = "Auto enhance ${if (it) "on" else "off"}"
+    }
+    AutoToggle(Icons.Filled.PanTool, "Stabilize", state.stabilize) {
+      viewModel.setStabilize(it)
+      caption = "Stabilize ${if (it) "on" else "off"}"
+    }
+    AutoToggle(Icons.Filled.CenterFocusStrong, "Auto framing", state.autoFrame) {
+      viewModel.setAutoFrame(it)
+      caption = "Auto framing ${if (it) "on" else "off"}"
+    }
+  }
+}
+
+@Composable
+private fun AutoToggle(icon: ImageVector, name: String, on: Boolean, onChange: (Boolean) -> Unit) {
+  val haptics = LocalHapticFeedback.current
+  Box(
+      Modifier.size(40.dp)
+          .clip(CircleShape)
+          .background(Color.Black.copy(alpha = if (on) 0.6f else 0.3f))
+          .toggleable(value = on, role = Role.Switch) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onChange(it)
+          }
+          .semantics { contentDescription = name },
+      contentAlignment = Alignment.Center,
+  ) {
+    Icon(icon, contentDescription = null, tint = if (on) Accent else Color.White, modifier = Modifier.size(20.dp))
+  }
+}
+
+/** Camera-style zoom presets. Pinch the preview for anything in between. */
+@Composable
+private fun ZoomChips(state: UiState, viewModel: GlassCastViewModel) {
+  val presets = listOf(1f, 1.5f, 2f, 3f)
+  val zoom = state.zoom
+  val onPreset = presets.any { abs(zoom - it) < 0.05f }
+  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+    if (state.autoFrame) ZoomChip("AUTO", selected = true, width = 56.dp, onClick = {})
+    presets.forEach { preset ->
+      val selected = !state.autoFrame && abs(zoom - preset) < 0.05f
+      ZoomChip(zoomLabel(if (selected) zoom else preset), selected) {
+        viewModel.setAutoFrame(false)
+        viewModel.setZoom(preset)
+      }
+    }
+    if (!state.autoFrame && !onPreset) ZoomChip(zoomLabel(zoom), selected = true, onClick = {})
+  }
+}
+
+@Composable
+private fun ZoomChip(label: String, selected: Boolean, width: Dp = 48.dp, onClick: () -> Unit) {
+  Box(
+      Modifier.size(width = width, height = 32.dp)
+          .clip(RoundedCornerShape(50))
+          .background(Color.Black.copy(alpha = if (selected) 0.6f else 0.3f))
+          .clickable(onClick = onClick),
+      contentAlignment = Alignment.Center,
+  ) {
+    Text(label, color = if (selected) Accent else Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+private fun zoomLabel(zoom: Float): String =
+    if (zoom % 1f < 0.05f) "${zoom.toInt()}×" else String.format(java.util.Locale.US, "%.1f×", zoom)
 
 @Composable
 private fun StatusBar(state: UiState, viewerCount: Int, onDisconnect: () -> Unit) {
@@ -326,14 +479,13 @@ private fun StatusBar(state: UiState, viewerCount: Int, onDisconnect: () -> Unit
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Box(
-        Modifier.size(8.dp)
-            .background(if (state.isStreaming) Color(0xFFDC2626) else Color.Gray, CircleShape))
+    Box(Modifier.size(8.dp).background(if (state.isStreaming) Live else Color.Gray, CircleShape))
     Text(state.statusText, color = Color.White, fontSize = 14.sp)
     if (state.isStreaming) Text("${state.fps} fps", color = Color.White, fontSize = 14.sp)
     Spacer(Modifier.weight(1f))
+    state.recordingSince?.let { RecordingTimer(it) }
     if (state.capturingAudio) {
-      Icon(Icons.Filled.Mic, contentDescription = "Glasses microphone on", tint = Color(0xFFDC2626))
+      Icon(Icons.Filled.Mic, contentDescription = "Glasses microphone on", tint = Live)
     }
     if (viewerCount > 0) {
       Icon(Icons.Filled.Computer, contentDescription = "Desktop viewers", tint = Color.White)
@@ -358,9 +510,12 @@ private fun StatusBar(state: UiState, viewerCount: Int, onDisconnect: () -> Unit
 
 @Composable
 private fun Controls(
+    viewModel: GlassCastViewModel,
     state: UiState,
-    onToggle: () -> Unit,
-    onQuality: (Quality) -> Unit,
+    mode: CaptureMode,
+    onMode: (CaptureMode) -> Unit,
+    onCollapse: () -> Unit,
+    onOpenGallery: () -> Unit,
     onToggleAudio: () -> Unit,
     onShare: () -> Unit,
 ) {
@@ -368,14 +523,29 @@ private fun Controls(
       modifier =
           Modifier.fillMaxWidth()
               .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
-              .padding(12.dp),
+              .pointerInput(Unit) {
+                // Swipe the panel down to fold it away.
+                var dragged = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { dragged = 0f },
+                    onDragEnd = { if (dragged > 120f) onCollapse() },
+                ) { _, amount ->
+                  dragged += amount
+                }
+              }
+              .padding(horizontal = 12.dp, vertical = 8.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
+    IconButton(onClick = onCollapse, modifier = Modifier.fillMaxWidth().height(20.dp)) {
+      Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Hide controls", tint = Color.White.copy(alpha = 0.6f))
+    }
+    ModeSwitcher(mode, locked = state.isRecording, onMode)
+    ShutterRow(viewModel, state, mode, onOpenGallery)
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
       Quality.entries.forEachIndexed { index, quality ->
         SegmentedButton(
             selected = state.quality == quality,
-            onClick = { onQuality(quality) },
+            onClick = { viewModel.setQuality(quality) },
             shape = SegmentedButtonDefaults.itemShape(index, Quality.entries.size),
         ) {
           Text(quality.label)
@@ -384,29 +554,139 @@ private fun Controls(
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
       Button(
-          onClick = onToggle,
+          onClick = { if (state.wantsStream) viewModel.stopStreaming() else viewModel.startStreaming() },
           modifier = Modifier.weight(1f).height(52.dp),
           colors =
-              if (state.wantsStream) ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+              if (state.wantsStream) ButtonDefaults.buttonColors(containerColor = Live)
               else ButtonDefaults.buttonColors(),
       ) {
         Icon(if (state.wantsStream) Icons.Filled.Stop else Icons.Filled.PlayArrow, null)
         Spacer(Modifier.width(8.dp))
-        Text(if (state.wantsStream) "Stop" else "Start live view")
+        Text(if (state.wantsStream) "Stop" else "Start live view", maxLines = 1)
       }
       OutlinedButton(onClick = onToggleAudio, modifier = Modifier.height(52.dp)) {
         Icon(
             if (state.audioEnabled) Icons.Filled.Mic else Icons.Filled.MicOff,
             contentDescription =
                 if (state.audioEnabled) "Turn off glasses microphone" else "Turn on glasses microphone",
-            tint = if (state.audioEnabled) Color(0xFFDC2626) else Color.White,
+            tint = if (state.audioEnabled) Live else Color.White,
         )
       }
       OutlinedButton(onClick = onShare, modifier = Modifier.height(52.dp)) {
         Icon(Icons.Filled.Computer, null)
         Spacer(Modifier.width(8.dp))
-        Text("Desktop")
+        Text("Desktop", maxLines = 1)
       }
+    }
+  }
+}
+
+/** PHOTO / VIDEO, switched by tapping a label or swiping sideways. Locked while recording. */
+@Composable
+private fun ModeSwitcher(mode: CaptureMode, locked: Boolean, onMode: (CaptureMode) -> Unit) {
+  val haptics = LocalHapticFeedback.current
+  fun select(next: CaptureMode) {
+    if (locked || next == mode) return
+    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    onMode(next)
+  }
+  Row(
+      Modifier.fillMaxWidth().pointerInput(locked, mode) {
+        var dragged = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { dragged = 0f },
+            onDragEnd = { if (abs(dragged) > 40f) select(if (dragged < 0) CaptureMode.VIDEO else CaptureMode.PHOTO) },
+        ) { _, amount ->
+          dragged += amount
+        }
+      },
+      horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+  ) {
+    CaptureMode.entries.forEach { item ->
+      Text(
+          item.label,
+          color = if (item == mode) Accent else Color.White.copy(alpha = 0.7f),
+          fontSize = 13.sp,
+          fontWeight = FontWeight.SemiBold,
+          letterSpacing = 1.5.sp,
+          modifier =
+              Modifier.clickable(enabled = !locked) { select(item) }
+                  .padding(horizontal = 8.dp, vertical = 4.dp)
+                  .semantics { selected = item == mode },
+      )
+    }
+  }
+}
+
+/** Latest photo on the left, the shutter in the middle. */
+@Composable
+private fun ShutterRow(viewModel: GlassCastViewModel, state: UiState, mode: CaptureMode, onOpenGallery: () -> Unit) {
+  val thumbnail by viewModel.photos.latestThumbnail.collectAsStateWithLifecycle()
+  Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.weight(1f)) {
+      IconButton(
+          onClick = onOpenGallery,
+          modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.12f)),
+      ) {
+        val image = thumbnail
+        if (image != null) {
+          Image(
+              bitmap = image.asImageBitmap(),
+              contentDescription = "Photos",
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.fillMaxSize(),
+          )
+        } else {
+          Icon(Icons.Filled.PhotoLibrary, contentDescription = "Photos", tint = Color.White)
+        }
+      }
+    }
+    Shutter(viewModel, state, mode)
+    Spacer(Modifier.weight(1f))
+  }
+}
+
+/**
+ * One shutter for both modes: a white disc takes a photo with the glasses; a red disc starts
+ * recording and turns into a red square that stops it.
+ */
+@Composable
+private fun Shutter(viewModel: GlassCastViewModel, state: UiState, mode: CaptureMode) {
+  val scope = rememberCoroutineScope()
+  val haptics = LocalHapticFeedback.current
+  val enabled =
+      when (mode) {
+        CaptureMode.PHOTO -> state.isStreaming && !state.takingPhoto
+        CaptureMode.VIDEO -> state.isStreaming || state.isRecording
+      }
+  val label =
+      when (mode) {
+        CaptureMode.PHOTO -> "Take a photo with the glasses"
+        CaptureMode.VIDEO -> if (state.isRecording) "Stop recording" else "Record video"
+      }
+  val innerSize by animateDpAsState(if (mode == CaptureMode.VIDEO && state.isRecording) 28.dp else 54.dp, label = "shutter")
+  val corner by animateDpAsState(if (mode == CaptureMode.VIDEO && state.isRecording) 6.dp else 27.dp, label = "corner")
+  Box(
+      Modifier.size(72.dp)
+          .border(4.dp, Color.White.copy(alpha = if (enabled) 1f else 0.4f), CircleShape)
+          .clip(CircleShape)
+          .clickable(enabled = enabled) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            when (mode) {
+              CaptureMode.PHOTO -> scope.launch { viewModel.takePhoto() }
+              CaptureMode.VIDEO -> if (state.isRecording) viewModel.stopRecording() else viewModel.startRecording()
+            }
+          }
+          .semantics { contentDescription = label },
+      contentAlignment = Alignment.Center,
+  ) {
+    val color = if (mode == CaptureMode.PHOTO) Color.White else Live
+    Box(
+        Modifier.size(innerSize)
+            .clip(RoundedCornerShape(corner))
+            .background(color.copy(alpha = if (enabled) 1f else 0.4f)))
+    if (mode == CaptureMode.PHOTO && state.takingPhoto) {
+      CircularProgressIndicator(color = Color.Black, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
     }
   }
 }
