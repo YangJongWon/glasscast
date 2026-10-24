@@ -2,6 +2,7 @@ package dev.glasscast
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.SystemClock
@@ -56,6 +57,8 @@ data class UiState(
     /** Streaming was requested and hasn't been stopped (session or stream may still be starting). */
     val wantsStream: Boolean = false,
     val quality: Quality = Quality.MEDIUM,
+    /** Digital zoom for the preview and desktop viewers, 1..4. */
+    val zoom: Float = 1f,
     /** Off by default and on every launch; the mic only runs while this is on and live view is wanted. */
     val audioEnabled: Boolean = false,
     val capturingAudio: Boolean = false,
@@ -93,9 +96,16 @@ data class UiState(
 class GlassCastViewModel(application: Application) : AndroidViewModel(application) {
   companion object {
     private const val FRAME_RATE = 24
+    const val MIN_ZOOM = 1f
+    const val MAX_ZOOM = 4f
+    private const val PREFS = "glasscast"
   }
 
-  private val _state = MutableStateFlow(UiState())
+  private val prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+  /** Read on the frame thread. */
+  @Volatile private var zoom = prefs.getFloat("zoom", 1f)
+
+  private val _state = MutableStateFlow(UiState(zoom = zoom))
   val state: StateFlow<UiState> = _state.asStateFlow()
 
   /** Kept apart from [state] so ~24 updates a second don't recompose the whole screen. */
@@ -261,6 +271,13 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     }
   }
 
+  fun setZoom(value: Float) {
+    val clamped = value.coerceIn(MIN_ZOOM, MAX_ZOOM)
+    zoom = clamped
+    prefs.edit().putFloat("zoom", clamped).apply()
+    _state.update { it.copy(zoom = clamped) }
+  }
+
   fun setQuality(quality: Quality) {
     if (quality == _state.value.quality) return
     _state.update { it.copy(quality = quality) }
@@ -392,9 +409,10 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     val buffer = frame.buffer.duplicate()
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
-    val jpeg = YuvJpeg.i420ToJpeg(bytes, frame.width, frame.height) ?: return
+    val crop = YuvJpeg.cropRect(frame.width, frame.height, zoom)
+    val jpeg = YuvJpeg.i420ToJpeg(bytes, frame.width, frame.height, zoom) ?: return
 
-    FrameHub.publish(JpegFrame(jpeg, frame.width, frame.height))
+    FrameHub.publish(JpegFrame(jpeg, crop.width(), crop.height()))
     _preview.value = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
 
     val now = SystemClock.elapsedRealtime()
@@ -403,7 +421,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     val fps = frameTimes.size
     if (fps != _state.value.fps) _state.update { it.copy(fps = fps) }
     FrameHub.updateStatus {
-      it.copy(fps = fps.toDouble(), width = frame.width, height = frame.height)
+      it.copy(fps = fps.toDouble(), width = crop.width(), height = crop.height())
     }
   }
 

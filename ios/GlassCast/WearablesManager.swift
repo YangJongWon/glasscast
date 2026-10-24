@@ -81,6 +81,13 @@ final class WearablesManager {
   var quality: Quality = .medium {
     didSet { if oldValue != quality { restartStream() } }
   }
+  /// Digital zoom for the preview and desktop viewers, 1...4. Remembered between launches.
+  var zoom: CGFloat = CGFloat(max(UserDefaults.standard.double(forKey: "zoom"), 1)) {
+    didSet {
+      digitalZoom.value = zoom
+      UserDefaults.standard.set(Double(zoom), forKey: "zoom")
+    }
+  }
   /// Off by default and on every launch; the microphone only runs while this is on and
   /// live view is running.
   private(set) var audioEnabled = false
@@ -131,6 +138,7 @@ final class WearablesManager {
   @ObservationIgnored private var frameTimes: [CFTimeInterval] = []
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
   @ObservationIgnored private let mic = GlassesMic()
+  @ObservationIgnored private let digitalZoom = DigitalZoom()
   @ObservationIgnored private var photoTimeout: Task<Void, Never>?
   #if EXPERIMENTAL_PHOTO
   @ObservationIgnored private var photoObserved = false
@@ -143,6 +151,7 @@ final class WearablesManager {
     self.server = server
     self.deviceSelector = AutoDeviceSelector(wearables: wearables)
     self.registrationState = wearables.registrationState
+    digitalZoom.value = zoom
 
     server.onViewerCountChange = { [weak self] count in self?.viewerCount = count }
     server.onError = { [weak self] message in self?.errorMessage = message }
@@ -510,8 +519,10 @@ final class WearablesManager {
       Task { @MainActor in self?.handleStreamState(state) }
     }.store(in: streamTokens)
 
+    let digitalZoom = self.digitalZoom
     stream.videoFramePublisher.listen { [weak self] frame in
-      guard let image = frame.makeUIImage() else { return }
+      guard let raw = frame.makeUIImage() else { return }
+      let image = digitalZoom.apply(to: raw)
       // Hand the frame to the server straight from the SDK thread; the UI hops to main.
       server.publish(image)
       Task { @MainActor in self?.didReceive(image) }

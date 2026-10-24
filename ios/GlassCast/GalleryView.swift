@@ -70,7 +70,12 @@ private struct PhotoDetail: View {
     ZStack {
       Color.black.ignoresSafeArea()
       if let image {
-        Image(uiImage: image).resizable().scaledToFit()
+        // Photos are full resolution, so Live Text works best here.
+        if LiveTextImage.isSupported {
+          LiveTextImage(image: image)
+        } else {
+          Image(uiImage: image).resizable().scaledToFit()
+        }
       } else {
         ProgressView().tint(.white)
       }

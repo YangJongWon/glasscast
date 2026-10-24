@@ -5,6 +5,8 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -179,6 +181,8 @@ private fun LiveScreen(
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
       StatusBar(state, viewerCount, onDisconnect)
       Spacer(Modifier.weight(1f))
+      ZoomChips(state.zoom, viewModel::setZoom)
+      Spacer(Modifier.height(8.dp))
       ShutterRow(viewModel, state, onOpenGallery = { showGallery = true })
       Spacer(Modifier.height(12.dp))
       Controls(
@@ -198,6 +202,36 @@ private fun LiveScreen(
     GalleryScreen(viewModel.photos, onClose = { showGallery = false })
   }
 }
+
+/** Camera-style zoom presets. Pinch the preview for anything in between. */
+@Composable
+private fun ZoomChips(zoom: Float, onZoom: (Float) -> Unit) {
+  val presets = listOf(1f, 1.5f, 2f, 3f)
+  val onPreset = presets.any { kotlin.math.abs(zoom - it) < 0.05f }
+  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+    presets.forEach { preset ->
+      val selected = kotlin.math.abs(zoom - preset) < 0.05f
+      ZoomChip(zoomLabel(if (selected) zoom else preset), selected) { onZoom(preset) }
+    }
+    if (!onPreset) ZoomChip(zoomLabel(zoom), selected = true, onClick = {})
+  }
+}
+
+@Composable
+private fun ZoomChip(label: String, selected: Boolean, onClick: () -> Unit) {
+  Box(
+      Modifier.size(width = 48.dp, height = 32.dp)
+          .clip(RoundedCornerShape(50))
+          .background(Color.Black.copy(alpha = if (selected) 0.6f else 0.3f))
+          .clickable(onClick = onClick),
+      contentAlignment = Alignment.Center,
+  ) {
+    Text(label, color = if (selected) Color(0xFFFACC15) else Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+private fun zoomLabel(zoom: Float): String =
+    if (zoom % 1f < 0.05f) "${zoom.toInt()}×" else String.format(java.util.Locale.US, "%.1f×", zoom)
 
 /** Latest photo on the left, the glasses shutter in the middle. */
 @Composable
@@ -264,7 +298,10 @@ private fun Preview(viewModel: GlassCastViewModel, state: UiState) {
           bitmap = bitmap.asImageBitmap(),
           contentDescription = "Live view from the glasses",
           contentScale = ContentScale.Fit,
-          modifier = Modifier.fillMaxSize(),
+          modifier =
+              Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTransformGestures { _, _, scale, _ -> viewModel.setZoom(viewModel.state.value.zoom * scale) }
+              },
       )
     } else {
       Column(horizontalAlignment = Alignment.CenterHorizontally) {

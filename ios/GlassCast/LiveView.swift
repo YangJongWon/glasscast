@@ -5,6 +5,8 @@ struct LiveView: View {
   @Bindable var manager: WearablesManager
   @State private var showShareSheet = false
   @State private var showGallery = false
+  @State private var lookUp: FrozenFrame?
+  @State private var pinchStartZoom: CGFloat?
 
   var body: some View {
     ZStack {
@@ -15,6 +17,14 @@ struct LiveView: View {
           .resizable()
           .scaledToFit()
           .ignoresSafeArea()
+          .gesture(
+            MagnifyGesture()
+              .onChanged { value in
+                let start = pinchStartZoom ?? manager.zoom
+                pinchStartZoom = start
+                manager.zoom = min(max(start * value.magnification, DigitalZoom.range.lowerBound), DigitalZoom.range.upperBound)
+              }
+              .onEnded { _ in pinchStartZoom = nil })
       } else {
         VStack(spacing: 12) {
           if manager.wantsStream {
@@ -31,7 +41,9 @@ struct LiveView: View {
       VStack {
         StatusBar(manager: manager)
         Spacer()
-        Controls(manager: manager, showShareSheet: $showShareSheet, showGallery: $showGallery)
+        Controls(
+          manager: manager, showShareSheet: $showShareSheet, showGallery: $showGallery,
+          lookUp: $lookUp)
       }
       .padding(16)
     }
@@ -41,6 +53,9 @@ struct LiveView: View {
     }
     .sheet(isPresented: $showGallery) {
       GalleryView(store: manager.photos)
+    }
+    .fullScreenCover(item: $lookUp) { frame in
+      LookUpView(image: frame.image)
     }
     .confirmationDialog(
       "Allow camera access",
@@ -117,10 +132,12 @@ private struct Controls: View {
   @Bindable var manager: WearablesManager
   @Binding var showShareSheet: Bool
   @Binding var showGallery: Bool
+  @Binding var lookUp: FrozenFrame?
 
   var body: some View {
     VStack(spacing: 12) {
-      ShutterRow(manager: manager, showGallery: $showGallery)
+      ZoomChips(manager: manager)
+      ShutterRow(manager: manager, showGallery: $showGallery, lookUp: $lookUp)
 
       Picker("Quality", selection: $manager.quality) {
         ForEach(WearablesManager.Quality.allCases) { quality in
@@ -170,10 +187,47 @@ private struct Controls: View {
   }
 }
 
+/// Camera-style zoom presets. Pinch the preview for anything in between.
+private struct ZoomChips: View {
+  var manager: WearablesManager
+  private let presets: [CGFloat] = [1, 1.5, 2, 3]
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(presets, id: \.self) { preset in
+        let selected = abs(manager.zoom - preset) < 0.05
+        Button {
+          withAnimation(.snappy) { manager.zoom = preset }
+        } label: {
+          Text(selected ? Self.label(manager.zoom) : Self.label(preset))
+            .font(.footnote.weight(.semibold).monospacedDigit())
+            .foregroundStyle(selected ? .yellow : .white)
+            .frame(width: 44, height: 32)
+            .background(.black.opacity(selected ? 0.6 : 0.3), in: Capsule())
+        }
+        .accessibilityLabel("Zoom \(Self.label(preset))")
+      }
+      // Shows a pinched value that isn't one of the presets.
+      if !presets.contains(where: { abs(manager.zoom - $0) < 0.05 }) {
+        Text(Self.label(manager.zoom))
+          .font(.footnote.weight(.semibold).monospacedDigit())
+          .foregroundStyle(.yellow)
+          .frame(width: 44, height: 32)
+          .background(.black.opacity(0.6), in: Capsule())
+      }
+    }
+  }
+
+  static func label(_ zoom: CGFloat) -> String {
+    zoom.truncatingRemainder(dividingBy: 1) < 0.05 ? "\(Int(zoom))×" : String(format: "%.1f×", zoom)
+  }
+}
+
 /// Latest photo on the left, the glasses shutter in the middle.
 private struct ShutterRow: View {
   var manager: WearablesManager
   @Binding var showGallery: Bool
+  @Binding var lookUp: FrozenFrame?
 
   var body: some View {
     HStack {
@@ -213,9 +267,29 @@ private struct ShutterRow: View {
       .opacity(manager.isStreaming ? 1 : 0.4)
       .accessibilityLabel("Take a photo with the glasses")
 
-      Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+      Group {
+        if LiveTextImage.isSupported {
+          Button {
+            lookUp = manager.frame.map(FrozenFrame.init)
+          } label: {
+            Image(systemName: "text.viewfinder")
+              .font(.title2)
+              .frame(width: 48, height: 48)
+              .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+          }
+          .disabled(manager.frame == nil)
+          .accessibilityLabel("Look up what the glasses see")
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .trailing)
     }
   }
+}
+
+/// A live-view frame frozen for Look Up.
+struct FrozenFrame: Identifiable {
+  let id = UUID()
+  let image: UIImage
 }
 
 /// How to open the stream on a computer: URL, QR code and OBS/VLC address.
