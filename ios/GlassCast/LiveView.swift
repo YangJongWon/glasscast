@@ -7,6 +7,7 @@ struct LiveView: View {
   @State private var showGallery = false
   @State private var lookUp: FrozenFrame?
   @State private var pinchStartZoom: CGFloat?
+  @State private var mode: CaptureMode = .photo
 
   var body: some View {
     ZStack {
@@ -41,8 +42,11 @@ struct LiveView: View {
       VStack {
         StatusBar(manager: manager)
         Spacer()
+        // Floats over the preview, above the panel, as in the Camera app.
+        ZoomChips(manager: manager)
+          .padding(.bottom, 4)
         Controls(
-          manager: manager, showShareSheet: $showShareSheet, showGallery: $showGallery,
+          manager: manager, mode: $mode, showShareSheet: $showShareSheet, showGallery: $showGallery,
           lookUp: $lookUp)
       }
       .padding(16)
@@ -131,16 +135,25 @@ private struct StatusBar: View {
   }
 }
 
+/// What the shutter does.
+enum CaptureMode: String, CaseIterable, Identifiable {
+  case photo, video
+
+  var id: String { rawValue }
+  var label: String { self == .photo ? "PHOTO" : "VIDEO" }
+}
+
 private struct Controls: View {
   @Bindable var manager: WearablesManager
+  @Binding var mode: CaptureMode
   @Binding var showShareSheet: Bool
   @Binding var showGallery: Bool
   @Binding var lookUp: FrozenFrame?
 
   var body: some View {
     VStack(spacing: 12) {
-      ZoomChips(manager: manager)
-      ShutterRow(manager: manager, showGallery: $showGallery, lookUp: $lookUp)
+      ModeSwitcher(mode: $mode, locked: manager.isRecording)
+      ShutterRow(manager: manager, mode: $mode, showGallery: $showGallery, lookUp: $lookUp)
 
       Picker("Quality", selection: $manager.quality) {
         ForEach(WearablesManager.Quality.allCases) { quality in
@@ -192,27 +205,40 @@ private struct Controls: View {
   }
 }
 
-/// Starts and stops recording the live view to an MP4 in the gallery.
-private struct RecordButton: View {
-  var manager: WearablesManager
+/// PHOTO / VIDEO, switched by tapping a label or swiping left and right. Locked while
+/// recording so a stray swipe can't interrupt it.
+private struct ModeSwitcher: View {
+  @Binding var mode: CaptureMode
+  let locked: Bool
 
   var body: some View {
-    Button {
-      if manager.isRecording { manager.stopRecording() } else { manager.startRecording() }
-    } label: {
-      ZStack {
-        RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.1))
-        if manager.isRecording {
-          RoundedRectangle(cornerRadius: 4).fill(.red).frame(width: 18, height: 18)
-        } else {
-          Circle().fill(.red).frame(width: 22, height: 22)
+    HStack(spacing: 24) {
+      ForEach(CaptureMode.allCases) { item in
+        Button {
+          select(item)
+        } label: {
+          Text(item.label)
+            .font(.footnote.weight(.semibold))
+            .tracking(1.5)
+            .foregroundStyle(mode == item ? .yellow : .white.opacity(0.7))
         }
+        .accessibilityAddTraits(mode == item ? .isSelected : [])
       }
-      .frame(width: 48, height: 48)
     }
-    .disabled(!manager.isStreaming && !manager.isRecording)
-    .opacity(manager.isStreaming || manager.isRecording ? 1 : 0.4)
-    .accessibilityLabel(manager.isRecording ? "Stop recording" : "Record video")
+    .frame(maxWidth: .infinity, minHeight: 28)
+    .contentShape(Rectangle())
+    .gesture(
+      DragGesture(minimumDistance: 20).onEnded { value in
+        // Swipe left for the mode on the right, right for the one on the left.
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        select(value.translation.width < 0 ? .video : .photo)
+      })
+    .disabled(locked)
+    .sensoryFeedback(.selection, trigger: mode)
+  }
+
+  private func select(_ item: CaptureMode) {
+    withAnimation(.snappy) { mode = item }
   }
 }
 
@@ -267,9 +293,10 @@ private struct ZoomChips: View {
   }
 }
 
-/// Latest photo on the left, the glasses shutter in the middle.
+/// Latest photo on the left, the shutter in the middle, Look Up on the right.
 private struct ShutterRow: View {
   var manager: WearablesManager
+  @Binding var mode: CaptureMode
   @Binding var showGallery: Bool
   @Binding var lookUp: FrozenFrame?
 
@@ -292,27 +319,9 @@ private struct ShutterRow: View {
       .accessibilityLabel("Photos")
       .frame(maxWidth: .infinity, alignment: .leading)
 
-      Button {
-        manager.takePhoto()
-      } label: {
-        ZStack {
-          Circle().strokeBorder(.white, lineWidth: 4).frame(width: 68, height: 68)
-          Circle().fill(.white).frame(width: 54, height: 54)
-          if manager.isTakingPhoto {
-            if let progress = manager.photoProgress {
-              ProgressView(value: progress).progressViewStyle(.circular).tint(.black)
-            } else {
-              ProgressView().tint(.black)
-            }
-          }
-        }
-      }
-      .disabled(!manager.isStreaming || manager.isTakingPhoto)
-      .opacity(manager.isStreaming ? 1 : 0.4)
-      .accessibilityLabel("Take a photo with the glasses")
+      Shutter(manager: manager, mode: mode)
 
-      HStack(spacing: 10) {
-        RecordButton(manager: manager)
+      Group {
         if LiveTextImage.isSupported {
           Button {
             lookUp = manager.frame.map(FrozenFrame.init)
@@ -327,6 +336,61 @@ private struct ShutterRow: View {
         }
       }
       .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+  }
+}
+
+/// One shutter for both modes: a white disc takes a photo with the glasses; a red disc
+/// starts recording and turns into a red square that stops it.
+private struct Shutter: View {
+  var manager: WearablesManager
+  let mode: CaptureMode
+
+  var body: some View {
+    Button(action: press) {
+      ZStack {
+        Circle().strokeBorder(.white, lineWidth: 4).frame(width: 68, height: 68)
+        switch mode {
+        case .photo:
+          Circle().fill(.white).frame(width: 54, height: 54)
+          if manager.isTakingPhoto {
+            if let progress = manager.photoProgress {
+              ProgressView(value: progress).progressViewStyle(.circular).tint(.black)
+            } else {
+              ProgressView().tint(.black)
+            }
+          }
+        case .video:
+          RoundedRectangle(cornerRadius: manager.isRecording ? 6 : 27)
+            .fill(.red)
+            .frame(width: manager.isRecording ? 28 : 54, height: manager.isRecording ? 28 : 54)
+        }
+      }
+      .animation(.snappy, value: manager.isRecording)
+    }
+    .disabled(!enabled)
+    .opacity(enabled ? 1 : 0.4)
+    .accessibilityLabel(accessibilityLabel)
+  }
+
+  private var enabled: Bool {
+    switch mode {
+    case .photo: return manager.isStreaming && !manager.isTakingPhoto
+    case .video: return manager.isStreaming || manager.isRecording
+    }
+  }
+
+  private var accessibilityLabel: String {
+    switch mode {
+    case .photo: return "Take a photo with the glasses"
+    case .video: return manager.isRecording ? "Stop recording" : "Record video"
+    }
+  }
+
+  private func press() {
+    switch mode {
+    case .photo: manager.takePhoto()
+    case .video: manager.isRecording ? manager.stopRecording() : manager.startRecording()
     }
   }
 }
