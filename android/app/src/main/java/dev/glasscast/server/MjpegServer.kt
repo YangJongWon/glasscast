@@ -144,7 +144,7 @@ class MjpegServer(
       if (byte < 0 || ++total > MAX_REQUEST_BYTES) return null
       head.append(byte.toChar())
     }
-    return head.substringBefore("\r\n")
+    return head.toString().substringBefore("\r\n")
   }
 
   private fun respond(out: OutputStream, status: String, type: String, body: ByteArray) {
