@@ -1,5 +1,7 @@
 # GlassCast
 
+[![Build](https://github.com/YangJongWon/glasscast/actions/workflows/build.yml/badge.svg)](https://github.com/YangJongWon/glasscast/actions/workflows/build.yml)
+
 See what your Ray-Ban Meta glasses see, **live**, on your phone and on any computer on the same Wi-Fi network. You can view it in a browser, OBS, or VLC.
 
 The official Meta AI app only shows photos and videos *after* you capture them. GlassCast uses Meta's [Wearables Device Access Toolkit](https://wearables.developer.meta.com) (DAT SDK) to pull the camera stream into a native iOS or Android app. The app shows it full-screen and re-broadcasts it over your local network as MJPEG.
@@ -21,7 +23,17 @@ Ray-Ban Meta ──Bluetooth (DAT SDK)──▶ Phone app ──Wi-Fi, HTTP MJPE
 - Either **Developer Mode** enabled in the Meta AI app, or an app registered in the [Wearables Developer Center](https://wearables.developer.meta.com) (App ID + Client Token).
   - To enable Developer Mode: in Meta AI, open *Settings → App Info* and tap the version number 5 times.
 - iOS: Xcode 16+ and an Apple Developer team for signing. Optionally, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
-- Android: Android Studio (Ladybug or newer) with JDK 17.
+- Android: a recent Android Studio. Gradle runs on its bundled JDK; from the command line, use JDK 17 or newer.
+
+## Register the app (optional)
+
+Developer Mode is enough to run GlassCast on your own phone. To share builds with others, register the app in the [Wearables Developer Center](https://wearables.developer.meta.com):
+
+1. Create a project, then open *Configuration → Mobile app configuration*.
+2. **iOS**: enter your Apple **Team ID**, the **Bundle ID** you put in `Secrets.xcconfig`, and `glasscast://` as the **Universal link**. GlassCast receives Meta AI's callback through that URL scheme.
+3. **Android**: enter the package name `dev.glasscast.app`, or your own `applicationId`.
+4. Under *Permissions*, turn on **Camera access**. Turn on **Microphone access** only if you use sound.
+5. Copy the **App ID** and **Client Token** into `Secrets.xcconfig` (iOS) and `local.properties` (Android).
 
 ## Build and run
 

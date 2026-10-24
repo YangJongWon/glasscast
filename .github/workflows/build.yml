@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  protocol:
+    name: Protocol (mock server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Make test frames
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          mkdir frames
+          ffmpeg -loglevel error -f lavfi -i testsrc=size=504x896:rate=24 -t 1 frames/%04d.jpg
+      - name: Check the HTTP API against the mock server
+        run: |
+          python3 tools/mock_server.py frames --port 8080 &
+          sleep 2
+          python3 tools/check_stream.py localhost:8080
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew :app:assembleDebug
+
+  ios:
+    name: iOS
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          brew install xcodegen
+          xcodegen
+      # Builds without signing; Secrets.xcconfig is optional (`#include?`).
+      - name: Build (Debug and Release)
+        working-directory: ios
+        run: |
+          for config in Debug Release; do
+            xcodebuild -project GlassCast.xcodeproj -scheme GlassCast -configuration "$config" \
+              -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+          done
