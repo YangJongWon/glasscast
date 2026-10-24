@@ -18,8 +18,8 @@
 		B4A9055D1DC7335695B9E10B /* GalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5180E05B60F55A736B0700 /* GalleryView.swift */; };
 		C9D55693FB8B17A91A27EE8C /* NetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B220E5BE58233BBDE7E626FC /* NetworkInfo.swift */; };
 		CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB70259B8CB027AFE81EAB0 /* ContentView.swift */; };
+		DEAAD689CCF800E404028EBF /* FrameProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA90CD591BBB0C706FEE4F9A /* FrameProcessor.swift */; };
 		F0DF341FC4F7290B5F3D24FD /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 70EC68423C7043B09C39EF0F /* MWDATCore */; };
-		F2C002E87285F72E27D4B4C6 /* DigitalZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A0CB4137DE3B45A9E9C59E /* DigitalZoom.swift */; };
 		F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */; };
 		FD2B2F50335239E9ABAD24F7 /* PCM16Converter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8439F529F469F30A813CD680 /* PCM16Converter.swift */; };
 		FDBA4BDFE88F5996FBA531BD /* GlassesMic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD56346CA459CBB9329DE98 /* GlassesMic.swift */; };
@@ -28,7 +28,6 @@
 
 /* Begin PBXFileReference section */
 		2658E48CC52E1EB3AE1C1194 /* LiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
-		34A0CB4137DE3B45A9E9C59E /* DigitalZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigitalZoom.swift; sourceTree = "<group>"; };
 		371774609D43F1958B355F48 /* viewer.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = viewer.html; sourceTree = "<group>"; };
 		46AAAB690DA5E7532A0B5FA7 /* LiveTextImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTextImage.swift; sourceTree = "<group>"; };
 		4E7731A40F4D71C40B4DBB59 /* VideoRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRecorder.swift; sourceTree = "<group>"; };
@@ -46,6 +45,7 @@
 		BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCastApp.swift; sourceTree = "<group>"; };
 		E4287BA22792BE8B07302F94 /* ConnectionIssue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionIssue.swift; sourceTree = "<group>"; };
 		F3EA66767DD0430B70AE5C14 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		FA90CD591BBB0C706FEE4F9A /* FrameProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameProcessor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,7 +91,7 @@
 			children = (
 				E4287BA22792BE8B07302F94 /* ConnectionIssue.swift */,
 				8BB70259B8CB027AFE81EAB0 /* ContentView.swift */,
-				34A0CB4137DE3B45A9E9C59E /* DigitalZoom.swift */,
+				FA90CD591BBB0C706FEE4F9A /* FrameProcessor.swift */,
 				6B5180E05B60F55A736B0700 /* GalleryView.swift */,
 				BA5306ABCB3D7EFC69BD29B8 /* GlassCastApp.swift */,
 				5CD56346CA459CBB9329DE98 /* GlassesMic.swift */,
@@ -206,7 +206,7 @@
 			files = (
 				FE0E001ED6C782124BB0C338 /* ConnectionIssue.swift in Sources */,
 				CF485DDE709022464B53A4C5 /* ContentView.swift in Sources */,
-				F2C002E87285F72E27D4B4C6 /* DigitalZoom.swift in Sources */,
+				DEAAD689CCF800E404028EBF /* FrameProcessor.swift in Sources */,
 				B4A9055D1DC7335695B9E10B /* GalleryView.swift in Sources */,
 				F73223E976B576245C3B3FA6 /* GlassCastApp.swift in Sources */,
 				FDBA4BDFE88F5996FBA531BD /* GlassesMic.swift in Sources */,

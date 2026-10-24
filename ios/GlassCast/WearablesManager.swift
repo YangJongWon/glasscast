@@ -84,8 +84,30 @@ final class WearablesManager {
   /// Digital zoom for the preview and desktop viewers, 1...4. Remembered between launches.
   var zoom: CGFloat = CGFloat(max(UserDefaults.standard.double(forKey: "zoom"), 1)) {
     didSet {
-      digitalZoom.value = zoom
+      zoom = min(max(zoom, FrameProcessor.zoomRange.lowerBound), FrameProcessor.zoomRange.upperBound)
       UserDefaults.standard.set(Double(zoom), forKey: "zoom")
+      applyProcessing()
+    }
+  }
+  /// Auto brightness, contrast and color. Remembered between launches.
+  var autoEnhance = UserDefaults.standard.bool(forKey: "autoEnhance") {
+    didSet {
+      UserDefaults.standard.set(autoEnhance, forKey: "autoEnhance")
+      applyProcessing()
+    }
+  }
+  /// Smooths out head shake. Remembered between launches.
+  var stabilize = UserDefaults.standard.bool(forKey: "stabilize") {
+    didSet {
+      UserDefaults.standard.set(stabilize, forKey: "stabilize")
+      applyProcessing()
+    }
+  }
+  /// Zooms toward faces, people or text; replaces manual zoom while on.
+  var autoFrame = UserDefaults.standard.bool(forKey: "autoFrame") {
+    didSet {
+      UserDefaults.standard.set(autoFrame, forKey: "autoFrame")
+      applyProcessing()
     }
   }
   /// Off by default and on every launch; the microphone only runs while this is on and
@@ -154,7 +176,7 @@ final class WearablesManager {
   @ObservationIgnored private var frameTimes: [CFTimeInterval] = []
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
   @ObservationIgnored private let mic = GlassesMic()
-  @ObservationIgnored private let digitalZoom = DigitalZoom()
+  @ObservationIgnored private let processor = FrameProcessor()
   @ObservationIgnored private let recorder = VideoRecorder()
   @ObservationIgnored private var photoTimeout: Task<Void, Never>?
   #if EXPERIMENTAL_PHOTO
@@ -168,7 +190,7 @@ final class WearablesManager {
     self.server = server
     self.deviceSelector = AutoDeviceSelector(wearables: wearables)
     self.registrationState = wearables.registrationState
-    digitalZoom.value = zoom
+    applyProcessing()
 
     server.onViewerCountChange = { [weak self] count in self?.viewerCount = count }
     server.onError = { [weak self] message in self?.errorMessage = message }
@@ -361,6 +383,13 @@ final class WearablesManager {
     }
   }
   #endif
+
+  // MARK: - Processing
+
+  private func applyProcessing() {
+    processor.settings = FrameProcessor.Settings(
+      zoom: zoom, enhance: autoEnhance, stabilize: stabilize, autoFrame: autoFrame)
+  }
 
   // MARK: - Recording
 
@@ -585,11 +614,11 @@ final class WearablesManager {
       Task { @MainActor in self?.handleStreamState(state) }
     }.store(in: streamTokens)
 
-    let digitalZoom = self.digitalZoom
+    let processor = self.processor
     let recorder = self.recorder
     stream.videoFramePublisher.listen { [weak self] frame in
       guard let raw = frame.makeUIImage() else { return }
-      let image = digitalZoom.apply(to: raw)
+      let image = processor.process(raw)
       recorder.append(image)
       // Hand the frame to the server straight from the SDK thread; the UI hops to main.
       server.publish(image)

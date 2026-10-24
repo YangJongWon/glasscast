@@ -28,9 +28,11 @@ struct LiveView: View {
           .gesture(
             MagnifyGesture()
               .onChanged { value in
+                // Pinching takes over from auto framing.
+                if manager.autoFrame { manager.autoFrame = false }
                 let start = pinchStartZoom ?? manager.zoom
                 pinchStartZoom = start
-                manager.zoom = min(max(start * value.magnification, DigitalZoom.range.lowerBound), DigitalZoom.range.upperBound)
+                manager.zoom = min(max(start * value.magnification, FrameProcessor.zoomRange.lowerBound), FrameProcessor.zoomRange.upperBound)
               }
               .onEnded { _ in pinchStartZoom = nil })
       } else {
@@ -70,8 +72,10 @@ struct LiveView: View {
           CollapsedBar(manager: manager, expand: toggleControls)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         } else {
-          VStack(spacing: 4) {
-            // Floats over the preview, above the panel, as in the Camera app.
+          VStack(spacing: 8) {
+            // Float over the preview, above the panel, as in the Camera app.
+            AutoToggles(manager: manager)
+              .frame(maxWidth: .infinity, alignment: .trailing)
             ZoomChips(manager: manager)
             Controls(
               manager: manager, mode: $mode, showShareSheet: $showShareSheet, showGallery: $showGallery,
@@ -372,6 +376,57 @@ private struct RecordingTimer: View {
   }
 }
 
+/// Auto enhance, stabilization and auto framing, each a round toggle. A short caption
+/// says what was switched, since the icons alone are easy to mix up.
+private struct AutoToggles: View {
+  @Bindable var manager: WearablesManager
+  @State private var caption: String?
+  @State private var captionTask: Task<Void, Never>?
+
+  var body: some View {
+    HStack(spacing: 10) {
+      if let caption {
+        Text(caption)
+          .font(.footnote.weight(.semibold))
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+          .background(.black.opacity(0.6), in: Capsule())
+          .transition(.opacity)
+      }
+      toggle("wand.and.stars", "Auto enhance", isOn: $manager.autoEnhance)
+      toggle("hand.raised.slash", "Stabilize", isOn: $manager.stabilize)
+      toggle("person.crop.rectangle", "Auto framing", isOn: $manager.autoFrame)
+    }
+    .foregroundStyle(.white)
+  }
+
+  private func toggle(_ symbol: String, _ name: String, isOn: Binding<Bool>) -> some View {
+    Button {
+      isOn.wrappedValue.toggle()
+      show("\(name) \(isOn.wrappedValue ? "on" : "off")")
+    } label: {
+      Image(systemName: symbol)
+        .font(.system(size: 17, weight: .semibold))
+        .foregroundStyle(isOn.wrappedValue ? .yellow : .white)
+        .frame(width: 40, height: 40)
+        .background(.black.opacity(isOn.wrappedValue ? 0.6 : 0.3), in: Circle())
+    }
+    .accessibilityLabel(name)
+    .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
+    .sensoryFeedback(.selection, trigger: isOn.wrappedValue)
+  }
+
+  private func show(_ text: String) {
+    withAnimation { caption = text }
+    captionTask?.cancel()
+    captionTask = Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      guard !Task.isCancelled else { return }
+      withAnimation { caption = nil }
+    }
+  }
+}
+
 /// Camera-style zoom presets. Pinch the preview for anything in between.
 private struct ZoomChips: View {
   var manager: WearablesManager
@@ -379,10 +434,21 @@ private struct ZoomChips: View {
 
   var body: some View {
     HStack(spacing: 8) {
+      if manager.autoFrame {
+        Text("AUTO")
+          .font(.footnote.weight(.semibold))
+          .foregroundStyle(.yellow)
+          .frame(width: 56, height: 32)
+          .background(.black.opacity(0.6), in: Capsule())
+          .accessibilityLabel("Zoom follows auto framing")
+      }
       ForEach(presets, id: \.self) { preset in
-        let selected = abs(manager.zoom - preset) < 0.05
+        let selected = !manager.autoFrame && abs(manager.zoom - preset) < 0.05
         Button {
-          withAnimation(.snappy) { manager.zoom = preset }
+          withAnimation(.snappy) {
+            manager.autoFrame = false
+            manager.zoom = preset
+          }
         } label: {
           Text(selected ? Self.label(manager.zoom) : Self.label(preset))
             .font(.footnote.weight(.semibold).monospacedDigit())
@@ -393,7 +459,7 @@ private struct ZoomChips: View {
         .accessibilityLabel("Zoom \(Self.label(preset))")
       }
       // Shows a pinched value that isn't one of the presets.
-      if !presets.contains(where: { abs(manager.zoom - $0) < 0.05 }) {
+      if !manager.autoFrame, !presets.contains(where: { abs(manager.zoom - $0) < 0.05 }) {
         Text(Self.label(manager.zoom))
           .font(.footnote.weight(.semibold).monospacedDigit())
           .foregroundStyle(.yellow)

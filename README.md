@@ -70,6 +70,18 @@ Open `android/` in Android Studio and run the `app` configuration on a real phon
    - **OBS**: add a *Browser* source with `http://<phone-ip>:8080/?clean`, or a *Media Source* with "Local file" unchecked and input `http://<phone-ip>:8080/stream`.
    - **VLC**: *Open Network Stream* → `http://<phone-ip>:8080/stream`.
 
+### Zoom and auto correction (iPhone)
+
+The glasses camera is very wide. Pinch anywhere on the live view, or tap **1× 1.5× 2× 3×**, to zoom up to 4×. Zoom applies to the phone preview, desktop viewers and recordings alike.
+
+Three toggles above the zoom buttons process every frame on the phone:
+
+- **Auto enhance** (wand): Core Image's automatic brightness, contrast and color correction, measured again about once a second.
+- **Stabilize** (hand): electronic stabilization. Vision measures the shake between frames, and a slightly tighter crop slides against it. Slow turns still come through.
+- **Auto framing** (person): zooms smoothly toward faces, then people, then text. It eases back out when nothing is found for a couple of seconds. Pinching or tapping a zoom preset turns it off.
+
+Photos taken with the glasses camera are always saved unprocessed. Android has pinch zoom, but not these toggles yet.
+
 ### Photos
 
 While live view runs, tap the round shutter button to have the **glasses camera** take a full photo. It is much sharper than a frame of the live stream. A computer can do the same with the viewer's **Take photo** button.
