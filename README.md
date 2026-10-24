@@ -123,8 +123,11 @@ Both apps (and `tools/mock_server.py`) serve the same HTTP API on port **8080**.
 ```sh
 # Desktop stand-in for the phone: loops a folder of JPEGs through the same API,
 # with a beep once a second on /audio and the current frame as the photo for /capture.
-ffmpeg -i clip.mp4 -vf "fps=24,scale=504:896" frames/%04d.jpg
-python3 tools/mock_server.py frames/ --port 8080
+python3 tools/mock_server.py tools/testdata/frames --port 8080
+# Or use your own clip: ffmpeg -i clip.mp4 -vf "fps=24,scale=504:896" frames/%04d.jpg
+
+# Browser tests for the viewer (live view, photos, recording) against the mock.
+cd web && npm install && npx playwright install chromium && npm test && cd ..
 
 # Check that a phone (or the mock) speaks the protocol correctly.
 # Add --capture to also take a photo with the glasses and fetch it.

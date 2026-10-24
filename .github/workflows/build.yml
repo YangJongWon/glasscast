@@ -14,16 +14,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Make test frames
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          mkdir frames
-          ffmpeg -loglevel error -f lavfi -i testsrc=size=504x896:rate=24 -t 1 frames/%04d.jpg
       - name: Check the HTTP API against the mock server
         run: |
-          python3 tools/mock_server.py frames --port 8080 &
+          python3 tools/mock_server.py tools/testdata/frames --port 8080 &
           sleep 2
           python3 tools/check_stream.py localhost:8080 --capture
+
+  viewer:
+    name: Viewer (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
 
   android:
     name: Android

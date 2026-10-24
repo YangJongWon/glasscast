@@ -25,3 +25,6 @@ android/captures/
 
 # Python
 __pycache__/
+
+# Node (web/ tests)
+node_modules/

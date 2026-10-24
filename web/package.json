@@ -1,0 +1,12 @@
+{
+  "name": "glasscast-viewer-tests",
+  "private": true,
+  "description": "Browser tests for web/viewer.html against tools/mock_server.py",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
