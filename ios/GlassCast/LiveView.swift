@@ -8,6 +8,8 @@ struct LiveView: View {
   @State private var lookUp: FrozenFrame?
   @State private var pinchStartZoom: CGFloat?
   @State private var mode: CaptureMode = .photo
+  /// Collapsed: just the live view, with a small handle to bring the controls back.
+  @State private var controlsHidden = false
 
   var body: some View {
     ZStack {
@@ -18,6 +20,7 @@ struct LiveView: View {
           .resizable()
           .scaledToFit()
           .ignoresSafeArea()
+          .onTapGesture { toggleControls() }
           .gesture(
             MagnifyGesture()
               .onChanged { value in
@@ -40,17 +43,28 @@ struct LiveView: View {
       }
 
       VStack {
-        StatusBar(manager: manager)
+        if !controlsHidden {
+          StatusBar(manager: manager)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
         Spacer()
-        // Floats over the preview, above the panel, as in the Camera app.
-        ZoomChips(manager: manager)
-          .padding(.bottom, 4)
-        Controls(
-          manager: manager, mode: $mode, showShareSheet: $showShareSheet, showGallery: $showGallery,
-          lookUp: $lookUp)
+        if controlsHidden {
+          CollapsedBar(manager: manager, expand: toggleControls)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else {
+          VStack(spacing: 4) {
+            // Floats over the preview, above the panel, as in the Camera app.
+            ZoomChips(manager: manager)
+            Controls(
+              manager: manager, mode: $mode, showShareSheet: $showShareSheet, showGallery: $showGallery,
+              lookUp: $lookUp, collapse: toggleControls)
+          }
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
       }
       .padding(16)
     }
+    .statusBarHidden(controlsHidden)
     .sheet(isPresented: $showShareSheet) {
       ShareSheet(manager: manager)
         .presentationDetents([.medium])
@@ -71,6 +85,37 @@ struct LiveView: View {
     } message: {
       Text("GlassCast needs permission to use the glasses camera. You'll approve it in the Meta AI app.")
     }
+  }
+}
+
+extension LiveView {
+  fileprivate func toggleControls() {
+    withAnimation(.snappy) { controlsHidden.toggle() }
+  }
+}
+
+/// What's left when the controls are folded away: a handle to unfold them, and the
+/// recording timer so a running recording is never invisible.
+private struct CollapsedBar: View {
+  var manager: WearablesManager
+  let expand: () -> Void
+
+  var body: some View {
+    HStack(spacing: 10) {
+      if let since = manager.recordingSince {
+        RecordingTimer(since: since)
+          .font(.subheadline)
+      }
+      Button(action: expand) {
+        Image(systemName: "chevron.up")
+          .font(.headline)
+          .frame(width: 56, height: 32)
+      }
+      .accessibilityLabel("Show controls")
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(.ultraThinMaterial, in: Capsule())
   }
 }
 
@@ -149,9 +194,18 @@ private struct Controls: View {
   @Binding var showShareSheet: Bool
   @Binding var showGallery: Bool
   @Binding var lookUp: FrozenFrame?
+  let collapse: () -> Void
 
   var body: some View {
     VStack(spacing: 12) {
+      Button(action: collapse) {
+        Image(systemName: "chevron.compact.down")
+          .font(.title2)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, minHeight: 16)
+      }
+      .accessibilityLabel("Hide controls")
+      .padding(.bottom, -6)
       ModeSwitcher(mode: $mode, locked: manager.isRecording)
       ShutterRow(manager: manager, mode: $mode, showGallery: $showGallery, lookUp: $lookUp)
 
@@ -202,6 +256,12 @@ private struct Controls: View {
     }
     .padding(12)
     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    .simultaneousGesture(
+      DragGesture(minimumDistance: 30).onEnded { value in
+        if value.translation.height > 60, value.translation.height > abs(value.translation.width) {
+          collapse()
+        }
+      })
   }
 }
 
