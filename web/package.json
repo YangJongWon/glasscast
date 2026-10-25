@@ -4,7 +4,7 @@
   "description": "Browser tests for web/viewer.html against tools/mock_server.py",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"
