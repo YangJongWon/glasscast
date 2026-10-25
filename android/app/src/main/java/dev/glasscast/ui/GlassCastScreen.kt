@@ -3,6 +3,12 @@ package dev.glasscast.ui
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Image
+import android.content.res.Configuration
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
@@ -214,11 +220,41 @@ private fun LiveScreen(
   var mode by remember { mutableStateOf(CaptureMode.PHOTO) }
   // Collapsed: just the live view, with a small handle to bring the controls back.
   var controlsHidden by remember { mutableStateOf(false) }
+  val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+  var toast by remember { mutableStateOf<String?>(null) }
+  LaunchedEffect(toast) {
+    if (toast != null) {
+      delay(1800)
+      toast = null
+    }
+  }
+  // The full panel doesn't fit in landscape: start folded, unfold to the side panel.
+  LaunchedEffect(landscape) { controlsHidden = landscape }
 
   Box(Modifier.fillMaxSize()) {
-    Preview(viewModel, state, onTap = { controlsHidden = !controlsHidden })
+    Preview(
+        viewModel,
+        state,
+        fill = landscape && state.landscapeFill,
+        onTap = { controlsHidden = !controlsHidden },
+        onDoubleTap = {
+          if (landscape) {
+            val fill = !state.landscapeFill
+            viewModel.setLandscapeFill(fill)
+            // Filling a landscape screen keeps about a third of the portrait frame's height.
+            toast =
+                if (!fill) "Fit whole view"
+                else if (state.quality != Quality.HIGH) "Fill screen · 720p looks sharper"
+                else "Fill screen"
+          }
+        },
+    )
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
+    if (landscape) {
+      LandscapeOverlay(
+          viewModel, state, viewerCount, mode, { mode = it }, controlsHidden, { controlsHidden = it }, onDisconnect,
+          onOpenGallery = { showGallery = true })
+    } else Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
       AnimatedVisibility(!controlsHidden, enter = fadeIn(), exit = fadeOut()) {
         StatusBar(state, viewerCount, onDisconnect)
       }
@@ -248,6 +284,18 @@ private fun LiveScreen(
         )
       }
     }
+
+    toast?.let {
+      Text(
+          it,
+          color = Color.White,
+          fontWeight = FontWeight.SemiBold,
+          modifier =
+              Modifier.align(Alignment.Center)
+                  .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(50))
+                  .padding(horizontal = 14.dp, vertical = 8.dp),
+      )
+    }
   }
 
   if (showShare) {
@@ -259,17 +307,28 @@ private fun LiveScreen(
 }
 
 @Composable
-private fun Preview(viewModel: GlassCastViewModel, state: UiState, onTap: () -> Unit) {
+private fun Preview(
+    viewModel: GlassCastViewModel,
+    state: UiState,
+    fill: Boolean,
+    onTap: () -> Unit,
+    onDoubleTap: () -> Unit,
+) {
   // Collected here so frame updates only recompose the preview.
   val frame by viewModel.preview.collectAsStateWithLifecycle()
   val bitmap = frame
+  // Read the latest callbacks without restarting gesture detection on every recomposition.
+  val tap by rememberUpdatedState(onTap)
+  val doubleTap by rememberUpdatedState(onDoubleTap)
   Box(
       // The whole screen, black bars included, takes pinch and tap while video is showing.
       Modifier.fillMaxSize()
           .then(
               if (bitmap == null) Modifier
               else
-                  Modifier.pointerInput(Unit) { detectTapGestures { onTap() } }
+                  Modifier.pointerInput(Unit) {
+                        detectTapGestures(onTap = { tap() }, onDoubleTap = { doubleTap() })
+                      }
                       .pointerInput(Unit) {
                         detectTransformGestures { _, _, scale, _ ->
                           viewModel.setZoom(viewModel.state.value.zoom * scale)
@@ -281,7 +340,7 @@ private fun Preview(viewModel: GlassCastViewModel, state: UiState, onTap: () -> 
       Image(
           bitmap = bitmap.asImageBitmap(),
           contentDescription = "Live view from the glasses",
-          contentScale = ContentScale.Fit,
+          contentScale = if (fill) ContentScale.Crop else ContentScale.Fit,
           modifier = Modifier.fillMaxSize(),
       )
     } else {
@@ -435,21 +494,30 @@ private fun AutoToggle(icon: ImageVector, name: String, on: Boolean, onChange: (
 
 /** Camera-style zoom presets. Pinch the preview for anything in between. */
 @Composable
-private fun ZoomChips(state: UiState, viewModel: GlassCastViewModel) {
+private fun ZoomChips(state: UiState, viewModel: GlassCastViewModel, vertical: Boolean = false) {
+  if (vertical) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) { ZoomChipItems(state, viewModel) }
+  } else {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+      ZoomChipItems(state, viewModel)
+    }
+  }
+}
+
+@Composable
+private fun ZoomChipItems(state: UiState, viewModel: GlassCastViewModel) {
   val presets = listOf(1f, 1.5f, 2f, 3f)
   val zoom = state.zoom
   val onPreset = presets.any { abs(zoom - it) < 0.05f }
-  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-    if (state.autoFrame) ZoomChip("AUTO", selected = true, width = 56.dp, onClick = {})
-    presets.forEach { preset ->
-      val selected = !state.autoFrame && abs(zoom - preset) < 0.05f
-      ZoomChip(zoomLabel(if (selected) zoom else preset), selected) {
-        viewModel.setAutoFrame(false)
-        viewModel.setZoom(preset)
-      }
+  if (state.autoFrame) ZoomChip("AUTO", selected = true, width = 56.dp, onClick = {})
+  presets.forEach { preset ->
+    val selected = !state.autoFrame && abs(zoom - preset) < 0.05f
+    ZoomChip(zoomLabel(if (selected) zoom else preset), selected) {
+      viewModel.setAutoFrame(false)
+      viewModel.setZoom(preset)
     }
-    if (!state.autoFrame && !onPreset) ZoomChip(zoomLabel(zoom), selected = true, onClick = {})
   }
+  if (!state.autoFrame && !onPreset) ZoomChip(zoomLabel(zoom), selected = true, onClick = {})
 }
 
 @Composable
@@ -583,25 +651,14 @@ private fun Controls(
 
 /** PHOTO / VIDEO, switched by tapping a label or swiping sideways. Locked while recording. */
 @Composable
-private fun ModeSwitcher(mode: CaptureMode, locked: Boolean, onMode: (CaptureMode) -> Unit) {
+private fun ModeSwitcher(mode: CaptureMode, locked: Boolean, onMode: (CaptureMode) -> Unit, vertical: Boolean = false) {
   val haptics = LocalHapticFeedback.current
   fun select(next: CaptureMode) {
     if (locked || next == mode) return
     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     onMode(next)
   }
-  Row(
-      Modifier.fillMaxWidth().pointerInput(locked, mode) {
-        var dragged = 0f
-        detectHorizontalDragGestures(
-            onDragStart = { dragged = 0f },
-            onDragEnd = { if (abs(dragged) > 40f) select(if (dragged < 0) CaptureMode.VIDEO else CaptureMode.PHOTO) },
-        ) { _, amount ->
-          dragged += amount
-        }
-      },
-      horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
-  ) {
+  val labels: @Composable () -> Unit = {
     CaptureMode.entries.forEach { item ->
       Text(
           item.label,
@@ -616,33 +673,157 @@ private fun ModeSwitcher(mode: CaptureMode, locked: Boolean, onMode: (CaptureMod
       )
     }
   }
+  if (vertical) {
+    Column(
+        Modifier.pointerInput(locked, mode) {
+          var dragged = 0f
+          detectVerticalDragGestures(
+              onDragStart = { dragged = 0f },
+              onDragEnd = { if (abs(dragged) > 40f) select(if (dragged < 0) CaptureMode.VIDEO else CaptureMode.PHOTO) },
+          ) { _, amount ->
+            dragged += amount
+          }
+        },
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+      labels()
+    }
+  } else {
+    Row(
+        Modifier.fillMaxWidth().pointerInput(locked, mode) {
+          var dragged = 0f
+          detectHorizontalDragGestures(
+              onDragStart = { dragged = 0f },
+              onDragEnd = { if (abs(dragged) > 40f) select(if (dragged < 0) CaptureMode.VIDEO else CaptureMode.PHOTO) },
+          ) { _, amount ->
+            dragged += amount
+          }
+        },
+        horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+    ) {
+      labels()
+    }
+  }
 }
 
 /** Latest photo on the left, the shutter in the middle. */
 @Composable
 private fun ShutterRow(viewModel: GlassCastViewModel, state: UiState, mode: CaptureMode, onOpenGallery: () -> Unit) {
-  val thumbnail by viewModel.photos.latestThumbnail.collectAsStateWithLifecycle()
   Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    Box(Modifier.weight(1f)) {
-      IconButton(
-          onClick = onOpenGallery,
-          modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.12f)),
-      ) {
-        val image = thumbnail
-        if (image != null) {
-          Image(
-              bitmap = image.asImageBitmap(),
-              contentDescription = "Photos",
-              contentScale = ContentScale.Crop,
-              modifier = Modifier.fillMaxSize(),
-          )
-        } else {
-          Icon(Icons.Filled.PhotoLibrary, contentDescription = "Photos", tint = Color.White)
-        }
-      }
-    }
+    Box(Modifier.weight(1f)) { GalleryButton(viewModel, onOpenGallery) }
     Shutter(viewModel, state, mode)
     Spacer(Modifier.weight(1f))
+  }
+}
+
+/** Latest photo or recording; opens the gallery. */
+@Composable
+private fun GalleryButton(viewModel: GlassCastViewModel, onOpenGallery: () -> Unit) {
+  val thumbnail by viewModel.photos.latestThumbnail.collectAsStateWithLifecycle()
+  IconButton(
+      onClick = onOpenGallery,
+      modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.12f)),
+  ) {
+    val image = thumbnail
+    if (image != null) {
+      Image(
+          bitmap = image.asImageBitmap(),
+          contentDescription = "Photos",
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.fillMaxSize(),
+      )
+    } else {
+      Icon(Icons.Filled.PhotoLibrary, contentDescription = "Photos", tint = Color.White)
+    }
+  }
+}
+
+/**
+ * Landscape: status and banners on the left, a slim capture panel on the right. Quality, sound,
+ * desktop sharing and the auto toggles stay in portrait.
+ */
+@Composable
+private fun LandscapeOverlay(
+    viewModel: GlassCastViewModel,
+    state: UiState,
+    viewerCount: Int,
+    mode: CaptureMode,
+    onMode: (CaptureMode) -> Unit,
+    controlsHidden: Boolean,
+    setControlsHidden: (Boolean) -> Unit,
+    onDisconnect: () -> Unit,
+    onOpenGallery: () -> Unit,
+) {
+  Row(
+      Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp),
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Column(Modifier.weight(1f).fillMaxHeight()) {
+      if (!controlsHidden) StatusBar(state, viewerCount, onDisconnect)
+      state.connectionIssue?.let { issue ->
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.widthIn(max = 420.dp)) {
+          ConnectionBanner(issue, viewModel::retryConnection, viewModel::dismissConnectionIssue)
+        }
+      }
+      Spacer(Modifier.weight(1f))
+      if (controlsHidden) CollapsedBar(state, onExpand = { setControlsHidden(false) }, Modifier)
+    }
+    if (!controlsHidden) {
+      Box(Modifier.fillMaxHeight(), contentAlignment = Alignment.Center) { ZoomChips(state, viewModel, vertical = true) }
+      SidePanel(viewModel, state, mode, onMode, onCollapse = { setControlsHidden(true) }, onOpenGallery)
+    }
+  }
+}
+
+/** The landscape capture panel: fold handle, PHOTO / VIDEO, shutter, gallery and start/stop. */
+@Composable
+private fun SidePanel(
+    viewModel: GlassCastViewModel,
+    state: UiState,
+    mode: CaptureMode,
+    onMode: (CaptureMode) -> Unit,
+    onCollapse: () -> Unit,
+    onOpenGallery: () -> Unit,
+) {
+  Column(
+      Modifier.width(120.dp)
+          .fillMaxHeight()
+          .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+          .pointerInput(Unit) {
+            // Swipe the panel right to fold it away.
+            var dragged = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { dragged = 0f },
+                onDragEnd = { if (dragged > 120f) onCollapse() },
+            ) { _, amount ->
+              dragged += amount
+            }
+          }
+          .padding(10.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    IconButton(onClick = onCollapse, modifier = Modifier.height(24.dp)) {
+      Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Hide controls", tint = Color.White.copy(alpha = 0.6f))
+    }
+    ModeSwitcher(mode, locked = state.isRecording, onMode, vertical = true)
+    Spacer(Modifier.weight(1f))
+    Shutter(viewModel, state, mode)
+    Spacer(Modifier.weight(1f))
+    GalleryButton(viewModel, onOpenGallery)
+    Button(
+        onClick = { if (state.wantsStream) viewModel.stopStreaming() else viewModel.startStreaming() },
+        modifier = Modifier.fillMaxWidth(),
+        colors =
+            if (state.wantsStream) ButtonDefaults.buttonColors(containerColor = Live) else ButtonDefaults.buttonColors(),
+    ) {
+      Icon(
+          if (state.wantsStream) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+          contentDescription = if (state.wantsStream) "Stop live view" else "Start live view",
+      )
+    }
   }
 }
 

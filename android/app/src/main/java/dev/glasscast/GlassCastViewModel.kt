@@ -70,6 +70,8 @@ data class UiState(
     val stabilize: Boolean = false,
     /** Zooms toward faces; replaces manual zoom while on. */
     val autoFrame: Boolean = false,
+    /** Landscape only: fill the screen instead of fitting between bars. This screen only. */
+    val landscapeFill: Boolean = false,
     /** Off by default and on every launch; the mic only runs while this is on and live view is wanted. */
     val audioEnabled: Boolean = false,
     val capturingAudio: Boolean = false,
@@ -137,6 +139,7 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
               autoEnhance = prefs.getBoolean("autoEnhance", false),
               stabilize = prefs.getBoolean("stabilize", false),
               autoFrame = prefs.getBoolean("autoFrame", false),
+              landscapeFill = prefs.getBoolean("landscapeFill", false),
           ))
   val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -394,6 +397,11 @@ class GlassCastViewModel(application: Application) : AndroidViewModel(applicatio
     prefs.edit().putBoolean("autoFrame", on).apply()
     _state.update { it.copy(autoFrame = on) }
     applyProcessing()
+  }
+
+  fun setLandscapeFill(on: Boolean) {
+    prefs.edit().putBoolean("landscapeFill", on).apply()
+    _state.update { it.copy(landscapeFill = on) }
   }
 
   fun setQuality(quality: Quality) {
