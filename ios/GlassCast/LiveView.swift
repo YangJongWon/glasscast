@@ -51,6 +51,16 @@ struct LiveView: View {
               .foregroundStyle(.white.opacity(0.6))
               .padding(.horizontal, 40)
           }
+          if manager.streamState == .paused {
+            Button {
+              manager.retryConnection()
+            } label: {
+              Label("Try again", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .tint(.white)
+            .padding(.top, 4)
+          }
         }
         .foregroundStyle(.white.opacity(0.8))
       }

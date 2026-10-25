@@ -155,7 +155,8 @@ final class WearablesManager {
   /// One line under the status explaining what to do, when the state calls for it.
   var statusHint: String? {
     switch streamState {
-    case .paused: return "Unfold your glasses and put them on to continue."
+    case .paused:
+      return "The glasses paused their camera: they were taken off or folded, or their own camera or Meta AI is using it. Live view resumes by itself; tap Try again if it doesn't."
     case .waitingForDevice: return "Keep your glasses on and near your phone."
     case .stopped where sessionState != .starting && !hasActiveDevice:
       return "Turn on your glasses, unfold them and keep them near your phone."
@@ -173,6 +174,7 @@ final class WearablesManager {
   @ObservationIgnored private let sessionTokens = ListenerTokenBag()
   @ObservationIgnored private let streamTokens = ListenerTokenBag()
   @ObservationIgnored private var restartAfterStop = false
+  @ObservationIgnored private var restartSessionAfterStop = false
   @ObservationIgnored private var frameTimes: [CFTimeInterval] = []
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
   @ObservationIgnored private let mic = GlassesMic()
@@ -276,9 +278,16 @@ final class WearablesManager {
     }
   }
 
+  /// Starts over with a fresh session: a live but stuck session (paused, interrupted) would
+  /// otherwise be reused as is.
   func retryConnection() {
     connectionIssue = nil
-    startStreaming()
+    guard let session else {
+      startStreaming()
+      return
+    }
+    restartSessionAfterStop = true
+    session.stop()
   }
 
   func dismissConnectionIssue() {
@@ -589,6 +598,12 @@ final class WearablesManager {
     case .started:
       Task { await beginStreamIfPermitted() }
     case .stopped:
+      if restartSessionAfterStop {
+        restartSessionAfterStop = false
+        cleanupSession()
+        startStreaming()
+        return
+      }
       // Not stopped by the user (stopStreaming clears wantsStream first): the glasses went away.
       if wantsStream, connectionIssue == nil { connectionIssue = .lost }
       cleanupSession()
@@ -634,7 +649,10 @@ final class WearablesManager {
         if error == .photoCaptureFailed {
           self?.photoFailed(error.localizedDescription)
         } else {
-          self?.connectionIssue = ConnectionIssue(error)
+          guard let self else { return }
+          // A pause also reports an interrupted stream; the paused status says why instead.
+          if error == .videoStreamingError, self.streamState == .paused { return }
+          self.connectionIssue = ConnectionIssue(error)
         }
       }
     }.store(in: streamTokens)
@@ -654,6 +672,16 @@ final class WearablesManager {
   private func handleStreamState(_ state: StreamState) {
     streamState = state
     server.update { $0.state = Self.statusName(state) }
+    switch state {
+    case .streaming:
+      // Video is flowing again, so earlier connection trouble is over.
+      if connectionIssue?.kind == .connection { connectionIssue = nil }
+    case .paused:
+      // The status explains a pause better than the stream error that comes with it.
+      if connectionIssue?.kind == .connection { connectionIssue = nil }
+    default:
+      break
+    }
     guard state == .stopped else { return }
 
     streamTokens.clear()
