@@ -10,6 +10,14 @@ struct LiveView: View {
   @State private var mode: CaptureMode = .photo
   /// Collapsed: just the live view, with a small handle to bring the controls back.
   @State private var controlsHidden = false
+  /// Landscape only: fill the screen (cropping top and bottom) instead of fitting the
+  /// portrait video between black bars. Affects this screen only, not viewers or files.
+  @AppStorage("landscapeFill") private var landscapeFill = false
+  @State private var toast: String?
+  @State private var toastTask: Task<Void, Never>?
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+  private var isLandscape: Bool { verticalSizeClass == .compact }
 
   var body: some View {
     ZStack {
@@ -18,12 +26,15 @@ struct LiveView: View {
       if let frame = manager.frame {
         Image(uiImage: frame)
           .resizable()
-          .scaledToFit()
+          .aspectRatio(contentMode: isLandscape && landscapeFill ? .fill : .fit)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .clipped()
           .ignoresSafeArea()
         // Covers the whole screen, black bars included, so pinch and tap work anywhere.
         Color.clear
           .contentShape(Rectangle())
           .ignoresSafeArea()
+          .onTapGesture(count: 2) { if isLandscape { toggleFill() } }
           .onTapGesture { toggleControls() }
           .gesture(
             MagnifyGesture()
@@ -65,6 +76,50 @@ struct LiveView: View {
         .foregroundStyle(.white.opacity(0.8))
       }
 
+      if isLandscape {
+        landscapeOverlay
+      } else {
+        portraitOverlay
+      }
+
+      if let toast {
+        Text(toast)
+          .font(.subheadline.weight(.semibold))
+          .padding(.horizontal, 14)
+          .padding(.vertical, 8)
+          .background(.black.opacity(0.7), in: Capsule())
+          .foregroundStyle(.white)
+          .transition(.opacity)
+      }
+    }
+    .onChange(of: isLandscape) { _, landscape in
+      // The full panel doesn't fit in landscape: start folded, unfold to the side panel.
+      withAnimation(.snappy) { controlsHidden = landscape }
+    }
+    .statusBarHidden(controlsHidden || isLandscape)
+    .sheet(isPresented: $showShareSheet) {
+      ShareSheet(manager: manager)
+        .presentationDetents([.medium])
+    }
+    .sheet(isPresented: $showGallery) {
+      GalleryView(store: manager.photos)
+    }
+    .fullScreenCover(item: $lookUp) { frame in
+      LookUpView(image: frame.image)
+    }
+    .confirmationDialog(
+      "Allow camera access",
+      isPresented: $manager.showCameraPermissionPrompt,
+      titleVisibility: .visible
+    ) {
+      Button("Open Meta AI") { manager.confirmCameraPermission() }
+      Button("Cancel", role: .cancel) { manager.stopStreaming() }
+    } message: {
+      Text("GlassCast needs permission to use the glasses camera. You'll approve it in the Meta AI app.")
+    }
+  }
+
+  private var portraitOverlay: some View {
       VStack {
         if !controlsHidden {
           StatusBar(manager: manager)
@@ -96,34 +151,68 @@ struct LiveView: View {
       }
       .padding(16)
       .animation(.snappy, value: manager.connectionIssue)
+  }
+
+  /// Landscape: status and banners on the left, a slim capture panel on the right. Quality,
+  /// sound, desktop sharing and the auto toggles stay in portrait.
+  private var landscapeOverlay: some View {
+    HStack(alignment: .top, spacing: 12) {
+      VStack(alignment: .leading, spacing: 8) {
+        if !controlsHidden {
+          StatusBar(manager: manager)
+            .frame(maxWidth: 420)
+            .transition(.opacity)
+        }
+        if let issue = manager.connectionIssue {
+          ConnectionBanner(
+            issue: issue, retry: manager.retryConnection, dismiss: manager.dismissConnectionIssue
+          )
+          .frame(maxWidth: 420)
+        }
+        Spacer()
+        if controlsHidden {
+          CollapsedBar(manager: manager, expand: toggleControls)
+            .transition(.opacity)
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      if !controlsHidden {
+        ZoomChips(manager: manager, axis: .vertical)
+          .frame(maxHeight: .infinity)
+        SidePanel(
+          manager: manager, mode: $mode, showGallery: $showGallery, lookUp: $lookUp,
+          collapse: toggleControls
+        )
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+      }
     }
-    .statusBarHidden(controlsHidden)
-    .sheet(isPresented: $showShareSheet) {
-      ShareSheet(manager: manager)
-        .presentationDetents([.medium])
-    }
-    .sheet(isPresented: $showGallery) {
-      GalleryView(store: manager.photos)
-    }
-    .fullScreenCover(item: $lookUp) { frame in
-      LookUpView(image: frame.image)
-    }
-    .confirmationDialog(
-      "Allow camera access",
-      isPresented: $manager.showCameraPermissionPrompt,
-      titleVisibility: .visible
-    ) {
-      Button("Open Meta AI") { manager.confirmCameraPermission() }
-      Button("Cancel", role: .cancel) { manager.stopStreaming() }
-    } message: {
-      Text("GlassCast needs permission to use the glasses camera. You'll approve it in the Meta AI app.")
-    }
+    .padding(12)
+    .animation(.snappy, value: manager.connectionIssue)
   }
 }
 
 extension LiveView {
   fileprivate func toggleControls() {
     withAnimation(.snappy) { controlsHidden.toggle() }
+  }
+
+  fileprivate func toggleFill() {
+    withAnimation(.snappy) { landscapeFill.toggle() }
+    var message = landscapeFill ? "Fill screen" : "Fit whole view"
+    // Filling a landscape screen keeps about a third of the portrait frame's height.
+    if landscapeFill, manager.quality != .high { message += " · 720p looks sharper" }
+    show(message)
+  }
+
+  fileprivate func show(_ message: String) {
+    withAnimation { toast = message }
+    toastTask?.cancel()
+    toastTask = Task {
+      try? await Task.sleep(for: .seconds(1.8))
+      guard !Task.isCancelled else { return }
+      withAnimation { toast = nil }
+    }
   }
 }
 
@@ -341,9 +430,11 @@ private struct Controls: View {
 private struct ModeSwitcher: View {
   @Binding var mode: CaptureMode
   let locked: Bool
+  var axis: Axis = .horizontal
 
   var body: some View {
-    HStack(spacing: 24) {
+    let layout = axis == .horizontal ? AnyLayout(HStackLayout(spacing: 24)) : AnyLayout(VStackLayout(spacing: 14))
+    layout {
       ForEach(CaptureMode.allCases) { item in
         Button {
           select(item)
@@ -356,13 +447,15 @@ private struct ModeSwitcher: View {
         .accessibilityAddTraits(mode == item ? .isSelected : [])
       }
     }
-    .frame(maxWidth: .infinity, minHeight: 28)
+    .frame(maxWidth: axis == .horizontal ? .infinity : nil, minHeight: 28)
     .contentShape(Rectangle())
     .gesture(
       DragGesture(minimumDistance: 20).onEnded { value in
-        // Swipe left for the mode on the right, right for the one on the left.
-        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-        select(value.translation.width < 0 ? .video : .photo)
+        // Swipe toward the next mode: left/up for VIDEO, right/down for PHOTO.
+        let along = axis == .horizontal ? value.translation.width : value.translation.height
+        let across = axis == .horizontal ? value.translation.height : value.translation.width
+        guard abs(along) > abs(across) else { return }
+        select(along < 0 ? .video : .photo)
       })
     .disabled(locked)
     .sensoryFeedback(.selection, trigger: mode)
@@ -442,10 +535,12 @@ private struct AutoToggles: View {
 /// Camera-style zoom presets. Pinch the preview for anything in between.
 private struct ZoomChips: View {
   var manager: WearablesManager
+  var axis: Axis = .horizontal
   private let presets: [CGFloat] = [1, 1.5, 2, 3]
 
   var body: some View {
-    HStack(spacing: 8) {
+    let layout = axis == .horizontal ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+    layout {
       if manager.autoFrame {
         Text("AUTO")
           .font(.footnote.weight(.semibold))
@@ -495,41 +590,104 @@ private struct ShutterRow: View {
 
   var body: some View {
     HStack {
-      Button {
-        showGallery = true
-      } label: {
-        Group {
-          if let thumbnail = manager.photos.latestThumbnail {
-            Image(uiImage: thumbnail).resizable().scaledToFill()
-          } else {
-            Image(systemName: "photo.on.rectangle").foregroundStyle(.secondary)
-          }
-        }
-        .frame(width: 48, height: 48)
-        .background(.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-      }
-      .accessibilityLabel("Photos")
-      .frame(maxWidth: .infinity, alignment: .leading)
-
+      GalleryButton(manager: manager, showGallery: $showGallery)
+        .frame(maxWidth: .infinity, alignment: .leading)
       Shutter(manager: manager, mode: mode)
+      LookUpButton(manager: manager, lookUp: $lookUp)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+  }
+}
 
+/// Latest photo or recording; opens the gallery.
+private struct GalleryButton: View {
+  var manager: WearablesManager
+  @Binding var showGallery: Bool
+
+  var body: some View {
+    Button {
+      showGallery = true
+    } label: {
       Group {
-        if LiveTextImage.isSupported {
-          Button {
-            lookUp = manager.frame.map(FrozenFrame.init)
-          } label: {
-            Image(systemName: "text.viewfinder")
-              .font(.title2)
-              .frame(width: 48, height: 48)
-              .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-          }
-          .disabled(manager.frame == nil)
-          .accessibilityLabel("Look up what the glasses see")
+        if let thumbnail = manager.photos.latestThumbnail {
+          Image(uiImage: thumbnail).resizable().scaledToFill()
+        } else {
+          Image(systemName: "photo.on.rectangle").foregroundStyle(.secondary)
         }
       }
-      .frame(maxWidth: .infinity, alignment: .trailing)
+      .frame(width: 48, height: 48)
+      .background(.white.opacity(0.1))
+      .clipShape(RoundedRectangle(cornerRadius: 10))
     }
+    .accessibilityLabel("Photos")
+  }
+}
+
+/// Freezes the current frame for Live Text and Visual Look Up.
+private struct LookUpButton: View {
+  var manager: WearablesManager
+  @Binding var lookUp: FrozenFrame?
+
+  var body: some View {
+    if LiveTextImage.isSupported {
+      Button {
+        lookUp = manager.frame.map(FrozenFrame.init)
+      } label: {
+        Image(systemName: "text.viewfinder")
+          .font(.title2)
+          .frame(width: 48, height: 48)
+          .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+      }
+      .disabled(manager.frame == nil)
+      .accessibilityLabel("Look up what the glasses see")
+    }
+  }
+}
+
+/// The landscape capture panel: fold handle, PHOTO / VIDEO, shutter, gallery and look up,
+/// and start/stop.
+private struct SidePanel: View {
+  var manager: WearablesManager
+  @Binding var mode: CaptureMode
+  @Binding var showGallery: Bool
+  @Binding var lookUp: FrozenFrame?
+  let collapse: () -> Void
+
+  var body: some View {
+    VStack(spacing: 12) {
+      Button(action: collapse) {
+        Image(systemName: "chevron.compact.right")
+          .font(.title2)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, minHeight: 20)
+      }
+      .accessibilityLabel("Hide controls")
+      ModeSwitcher(mode: $mode, locked: manager.isRecording, axis: .vertical)
+      Spacer(minLength: 0)
+      Shutter(manager: manager, mode: mode)
+      Spacer(minLength: 0)
+      HStack(spacing: 10) {
+        GalleryButton(manager: manager, showGallery: $showGallery)
+        LookUpButton(manager: manager, lookUp: $lookUp)
+      }
+      Button {
+        if manager.wantsStream { manager.stopStreaming() } else { manager.startStreaming() }
+      } label: {
+        Image(systemName: manager.wantsStream ? "stop.fill" : "play.fill")
+          .frame(maxWidth: .infinity, minHeight: 28)
+      }
+      .buttonStyle(.borderedProminent)
+      .tint(manager.wantsStream ? .red : .accentColor)
+      .accessibilityLabel(manager.wantsStream ? "Stop live view" : "Start live view")
+    }
+    .padding(12)
+    .frame(width: 128)
+    .frame(maxHeight: .infinity)
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    .simultaneousGesture(
+      DragGesture(minimumDistance: 30).onEnded { value in
+        if value.translation.width > 60, value.translation.width > abs(value.translation.height) { collapse() }
+      })
   }
 }
 
