@@ -237,7 +237,9 @@ private struct StatusBar: View {
           }
         }
         #endif
-        Button("Disconnect glasses", role: .destructive) { manager.disconnectGlasses() }
+        Section("Glasses link: \(GlassesLink.current.label)") {
+          Button("Disconnect glasses", role: .destructive) { manager.disconnectGlasses() }
+        }
       } label: {
         Image(systemName: "ellipsis.circle")
       }

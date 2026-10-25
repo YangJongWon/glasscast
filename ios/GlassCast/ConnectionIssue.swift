@@ -1,5 +1,18 @@
+import Foundation
 import MWDATCamera
 import MWDATCore
+
+/// How this build reaches the glasses, fixed by Info.plist at build time (see the
+/// "Glasses link" build phase): Bluetooth Classic through the accessory protocol, or the
+/// Wi-Fi network the glasses host.
+enum GlassesLink {
+  case bluetooth, wifi
+
+  static let current: GlassesLink =
+    Bundle.main.object(forInfoDictionaryKey: "UISupportedExternalAccessoryProtocols") == nil ? .wifi : .bluetooth
+
+  var label: String { self == .wifi ? "Wi-Fi" : "Bluetooth" }
+}
 
 /// A problem with the glasses, in words a user can act on: what happened and what to do.
 /// Shown as a banner over the live view instead of the SDK's raw error text.
@@ -29,12 +42,23 @@ struct ConnectionIssue: Equatable {
 
   // MARK: - Common cases
 
-  static let notConnected = ConnectionIssue(
-    kind: .connection,
-    title: "Glasses not connected",
-    message:
-      "Unfold your glasses, put them on and keep them near your phone. If they still don't connect, open the Meta AI app once to wake the connection."
-  )
+  static let notConnected: ConnectionIssue =
+    switch GlassesLink.current {
+    case .bluetooth:
+      ConnectionIssue(
+        kind: .connection,
+        title: "Glasses not connected",
+        message:
+          "Unfold your glasses, put them on and keep them near your phone. If they still don't connect, open the Meta AI app once to wake the connection."
+      )
+    case .wifi:
+      ConnectionIssue(
+        kind: .connection,
+        title: "Glasses Wi-Fi not joined",
+        message:
+          "This build streams over the Wi-Fi network your glasses host. Join it in Settings → Wi-Fi (the Meta AI app can show it, e.g. while importing media), come back, and tap Try again."
+      )
+    }
 
   static let lost = ConnectionIssue(
     kind: .connection,

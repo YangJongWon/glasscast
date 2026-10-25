@@ -6,6 +6,11 @@ options:
   deploymentTarget:
     iOS: "17.2"
   createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+  # Same as Debug, but the glasses stream over Wi-Fi instead of Bluetooth Classic.
+  Debug WiFi: debug
 packages:
   MWDAT:
     url: https://github.com/facebook/meta-wearables-dat-ios
@@ -23,6 +28,7 @@ targets:
     configFiles:
       Debug: GlassCast/Config/GlassCast.xcconfig
       Release: GlassCast/Config/GlassCast.xcconfig
+      Debug WiFi: GlassCast/Config/GlassCast.xcconfig
     settings:
       base:
         INFOPLIST_FILE: GlassCast/Info.plist
@@ -37,8 +43,44 @@ targets:
         # them can't be published, so only Debug builds compile them; Release never does.
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) EXPERIMENTAL_AUDIO EXPERIMENTAL_PHOTO"
+        Debug WiFi:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) EXPERIMENTAL_AUDIO EXPERIMENTAL_PHOTO"
+          GLASSES_LINK: wifi
+    postBuildScripts:
+      # Info.plist decides how the DAT SDK reaches the glasses. With the accessory protocol
+      # it streams over Bluetooth Classic; without it, over the Wi-Fi network the glasses
+      # host. GLASSES_LINK=wifi (the "Debug WiFi" configuration) removes the protocol.
+      - name: Glasses link
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${GLASSES_LINK}" = "wifi" ]; then
+            PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+            plutil -remove UISupportedExternalAccessoryProtocols "$PLIST" || true
+            plutil -replace UIBackgroundModes -json '["bluetooth-central","bluetooth-peripheral"]' "$PLIST"
+            echo "Glasses link: Wi-Fi"
+          fi
     dependencies:
       - package: MWDAT
         product: MWDATCore
       - package: MWDAT
         product: MWDATCamera
+schemes:
+  GlassCast:
+    build:
+      targets:
+        GlassCast: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  # Streams from the glasses over Wi-Fi. The phone must be able to join the glasses'
+  # network: automatically with the Hotspot Configuration capability (paid developer
+  # teams only), or by joining it in Settings.
+  GlassCast Wi-Fi:
+    build:
+      targets:
+        GlassCast: all
+    run:
+      config: Debug WiFi
+    archive:
+      config: Release
